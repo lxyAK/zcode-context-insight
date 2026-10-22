@@ -1,6 +1,6 @@
 {
   "name": "zcode-context-insight",
-  "version": "0.1.4",
+  "version": "0.1.5",
   "private": true,
   "type": "module",
   "description": "ZCode 的上下文与 token 可视化插件：跨会话总览、会话内上下文仪表盘、代理网络与 /context 命令。",
