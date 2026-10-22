@@ -163,7 +163,10 @@ describe("面板事件流与文件活动视图（mock 桥）", () => {
     const root = document.getElementById("root");
     expect(root.textContent).toContain("暂无事件记录");
     expect(root.textContent).toContain("暂无文件活动记录");
-    expect(root.querySelectorAll(".zci-empty").length).toBe(2);
+    // 空态节点各一（按文本计数而非全局计数：T6 合并后 Context Browser 的降级空态同样用 .zci-empty）
+    const empties = [...root.querySelectorAll(".zci-empty")].map((n) => n.textContent);
+    expect(empties.filter((t) => t === "暂无事件记录")).toHaveLength(1);
+    expect(empties.filter((t) => t === "暂无文件活动记录")).toHaveLength(1);
   });
 
   it("T7 工具调用失败（桥错误）：概览与其他视图仍渲染，显示降级提示", async () => {

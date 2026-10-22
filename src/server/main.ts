@@ -16,6 +16,7 @@ import type { ToolDefinition } from "./registry.ts";
 import { getOverviewTool } from "./tools/get_overview.ts";
 import { createCurrentSessionUsageTool } from "./tools/get_current_session_usage.ts";
 import { createCurrentSessionCompositionTool } from "./tools/get_current_session_composition.ts";
+import { createListSessionRequestsTool, createGetRequestDetailTool } from "./tools/request-detail.ts";
 import { createSessionStatsTool } from "./tools/get_session_stats.ts";
 import { createFleetTreeTool } from "./tools/get_fleet_tree.ts";
 import { createSessionEventsTool } from "./tools/get_session_events.ts";
@@ -33,6 +34,8 @@ const tools: ToolDefinition[] = [
   createSessionEventsTool(),
   createSessionFileActivityTool(),
   createActivityTool(),
+  createListSessionRequestsTool(),
+  createGetRequestDetailTool(),
 ];
 
 function registerTools(server: McpServer, defs: ToolDefinition[]): void {

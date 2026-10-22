@@ -221,8 +221,9 @@ describe("get_current_session_composition（功能缝：直调 execute）", () =
     try {
       const payload = await callCompositionTool({
         dbPath: fixtureDb,
-        // S_OLD 会话在夹具 rollout 目录中无文件
-        heartbeatPath: tmpHeartbeat(dir, "session_00000000000000000000000000000002", 1792600030000),
+        // S_MULTI 会话在夹具 rollout 目录中无文件
+        //（S_OLD 自 T6 合并起挂纯 delta 行集，缺文件路径改用 T9 的 S_MULTI）
+        heartbeatPath: tmpHeartbeat(dir, "session_00000000000000000000000000000004", 1792600030000),
         rolloutDir: fixtureRolloutDir,
       });
       expect(payload.available).toBe(false);

@@ -1,10 +1,10 @@
 /**
  * 面板装配层：ui/initialize 握手 → callServerTool(get_overview / get_current_session_usage /
  * get_current_session_composition / get_session_stats / get_fleet_tree / get_session_events /
- * get_session_file_activity / get_activity_insights) → 渲染。
- * 页面骨架（页头 + 概览区 + 用量区 + 组成区 + 统计区 + 事件流/文件活动 + Insights 活跃区 +
- * Fleet 代理网络）在此；后续工单的页面（Insights 页注册表 / Context 仪表盘）以新文件加入
- * 并在 renderOverview 处替换/扩展，不动桥协议层。
+ * get_session_file_activity / get_activity_insights / list_session_requests / get_request_detail)
+ * → 渲染。页面骨架（页头 + 概览区 + 用量区 + 组成区 + 统计区 + 事件流/文件活动 + Insights 活跃区 +
+ * Fleet 代理网络 + Context Browser）在此；后续工单的页面（Insights 页注册表 / Context 仪表盘）
+ * 以新文件加入并在 renderOverview 处替换/扩展，不动桥协议层。
  */
 
 /** 通用工具文本载荷解析：取首个 text 块 JSON；无文本返回 null */
@@ -49,6 +49,7 @@ import type { PostTarget } from "./bridge.ts";
 import { renderCompositionSection, type CompositionPayload } from "./views/composition.ts";
 import { renderActivitySection } from "./views/activity.ts";
 import type { ActivityPayload } from "./views/activity.ts";
+import { createBrowserView } from "./views/browser.ts";
 import { renderStatsSection, type SessionStatsPayload } from "./views/stats.ts";
 import { renderFleetSection, type FleetTreePayload } from "./views/fleet.ts";
 import { renderEventsSection, renderFileActivitySection } from "./views/events.ts";
@@ -149,6 +150,9 @@ export async function mountPanel(opts: MountOptions): Promise<void> {
     callTextTool(bridge, "get_fleet_tree"),
   ]);
 
+  // Context Browser（T6）：请求序列 + 组成明细（分组/DNA），视图独立文件，此处仅装配
+  const browser = createBrowserView({ doc: container.ownerDocument, callTool: makeCallTool(bridge) });
+
   renderOverview(
     container,
     init,
@@ -158,11 +162,24 @@ export async function mountPanel(opts: MountOptions): Promise<void> {
     stats,
     activityPayload as ActivityPayload | null,
     fleetPayload as FleetTreePayload | null,
+    browser.element,
   );
   container.append(
     renderEventsSection(container.ownerDocument, eventsPayload as EventsPayload | null),
     renderFileActivitySection(container.ownerDocument, fileActivityPayload as FileActivityPayload | null),
   );
+  await browser.render();
+}
+
+/** callServerTool 包装：面板数据工具统一经 tools/call 取 JSON 文本载荷（带参数；Browser 视图注入） */
+function makeCallTool(bridge: BridgeClient) {
+  return async (name: string, args: Record<string, unknown>): Promise<Record<string, unknown>> => {
+    const result = (await bridge.request("tools/call", { name, arguments: args })) as {
+      content?: Array<{ type: string; text?: string }>;
+    };
+    const text = result.content?.find((c) => c.type === "text")?.text;
+    return text ? (JSON.parse(text) as Record<string, unknown>) : {};
+  };
 }
 
 function el(
@@ -186,6 +203,7 @@ function renderOverview(
   stats: SessionStatsPayload | null,
   activity: ActivityPayload | null,
   fleet: FleetTreePayload | null,
+  browserElement?: HTMLElement,
 ): void {
   const doc = container.ownerDocument;
   container.replaceChildren();
@@ -209,16 +227,23 @@ function renderOverview(
     el(doc, "p", "zci-greeting", payload.greeting ?? ""),
   );
 
+  const usageSection = renderUsageSection(doc, usage, kv);
+  const browserSection = el(doc, "section", "zci-section");
+  browserSection.append(
+    el(doc, "h2", "zci-subtitle", "Context Browser"),
+    browserElement ?? el(doc, "p", "zci-status", "浏览器视图未就绪"),
+  );
   const footer = el(doc, "footer", "zci-footer", t("footerSkeleton"));
 
   container.append(
     header,
     section,
-    renderUsageSection(doc, usage, kv),
+    usageSection,
     renderCompositionSection(doc, composition),
     renderStatsSection(doc, stats),
     renderActivitySection(doc, activity),
     renderFleetSection(doc, fleet),
+    browserSection,
     footer,
   );
 }
