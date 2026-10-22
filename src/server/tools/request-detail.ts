@@ -26,7 +26,7 @@ import type { ToolDefinition } from "../registry.ts";
 import { resolveDbPath, resolveHeartbeatPath, resolveRolloutDir } from "../paths.ts";
 import { classifyDbError, openReadonlyDatabase } from "../db.ts";
 import { readHeartbeat } from "../heartbeat.ts";
-import { resolveCurrentSession } from "../usage.ts";
+import { resolveInferredSession } from "../usage.ts";
 import { readRolloutFile, type RolloutRecord } from "../rollout.ts";
 import { estimateTextTokens } from "../composition.ts";
 
@@ -251,7 +251,7 @@ function safeStringify(value: unknown): string {
 /**
  * sessionId 缺省时解析当前会话：心跳精确优先 → 最近活跃 interactive 兜底。
  * T13：有精确心跳时无需开库（db 缺失/被锁不阻断 rollout 侧的序列与明细）；
- * 兜底查询异常按 classifyDbError 分类降级。
+ * 兜底查询复用 resolveInferredSession（P1-8 会话识别归一），异常按 classifyDbError 分类降级。
  */
 function resolveSessionId(
   deps: RequestDetailDeps,
@@ -268,7 +268,7 @@ function resolveSessionId(
   const opened = openReadonlyDatabase(dbPath);
   if (!opened.ok) return { ok: false, reason: opened.reason };
   try {
-    const current = resolveCurrentSession(opened.db, "");
+    const current = resolveInferredSession(opened.db);
     return current ? { ok: true, id: current.id } : { ok: false, reason: "no-interactive-session" };
   } catch (err) {
     return { ok: false, reason: classifyDbError(err) };

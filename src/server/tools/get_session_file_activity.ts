@@ -9,16 +9,12 @@
  */
 import { z } from "zod";
 import type { ToolDefinition } from "../registry.ts";
-import { resolveDbPath, resolveHeartbeatPath } from "../paths.ts";
-import { classifyDbError, openReadonlyDatabase } from "../db.ts";
 import { resolveCurrentSession } from "../usage.ts";
+import { withReadonlyDb, type SessionToolDeps } from "./pipeline.ts";
 import { listSessionFileActivity } from "../events.ts";
 
 /** 工具依赖（测试注入缝；缺省从环境与宿主默认路径解析） */
-export interface SessionFileActivityDeps {
-  dbPath?: string;
-  heartbeatPath?: string;
-}
+export type SessionFileActivityDeps = SessionToolDeps;
 
 export function createSessionFileActivityTool(deps: SessionFileActivityDeps = {}): ToolDefinition {
   return {
@@ -49,39 +45,22 @@ function collectSessionFileActivity(
   deps: SessionFileActivityDeps,
   sessionId: string | undefined,
 ): Record<string, unknown> {
-  const dbPath = deps.dbPath ?? resolveDbPath();
-  const heartbeatPath = deps.heartbeatPath ?? resolveHeartbeatPath();
-
-  const opened = openReadonlyDatabase(dbPath);
-  if (!opened.ok) {
-    return { available: false, reason: opened.reason, session: null, activities: null };
-  }
-  try {
+  return withReadonlyDb(deps, { session: null, activities: null }, (db, heartbeatPath) => {
     if (sessionId) {
       return {
         available: true,
         session: { id: sessionId, source: "explicit", heartbeatAt: null },
-        activities: listSessionFileActivity(opened.db, sessionId),
+        activities: listSessionFileActivity(db, sessionId),
       };
     }
-    const current = resolveCurrentSession(opened.db, heartbeatPath);
+    const current = resolveCurrentSession(db, heartbeatPath);
     if (!current) {
       return { available: false, reason: "no-interactive-session", session: null, activities: null };
     }
     return {
       available: true,
       session: { id: current.id, source: current.source, heartbeatAt: current.heartbeatAt },
-      activities: listSessionFileActivity(opened.db, current.id),
+      activities: listSessionFileActivity(db, current.id),
     };
-  } catch (err) {
-    // schema 漂移（缺表缺列）/BUSY 等查询期异常：分类降级而非炸面板（classifyDbError，T13）
-    return {
-      available: false,
-      reason: classifyDbError(err),
-      session: null,
-      activities: null,
-    };
-  } finally {
-    opened.db.close();
-  }
+  });
 }

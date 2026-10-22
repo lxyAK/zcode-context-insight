@@ -8,9 +8,8 @@
  */
 import { z } from "zod";
 import type { ToolDefinition } from "../registry.ts";
-import { resolveDbPath } from "../paths.ts";
-import { classifyDbError, openReadonlyDatabase } from "../db.ts";
 import { collectInsights } from "../insights.ts";
+import { withReadonlyDb } from "./pipeline.ts";
 
 export interface InsightsDeps {
   dbPath?: string;
@@ -48,21 +47,9 @@ export function createInsightsTool(deps: InsightsDeps = {}): ToolDefinition {
 /** 采集逻辑（同步；打开/查询失败降级为 available=false，不抛错） */
 function collectInsightsSafe(deps: InsightsDeps, args: Record<string, unknown>): Record<string, unknown> {
   const trendDays = typeof args.trendDays === "number" ? args.trendDays : undefined;
-  const dbPath = deps.dbPath ?? resolveDbPath();
-  const opened = openReadonlyDatabase(dbPath);
-  if (!opened.ok) {
-    return { available: false, reason: opened.reason, anchorTime: null, kpi: null, trend: null, projects: null, sessions: null };
-  }
-  try {
-    return collectInsights(opened.db, args, trendDays) as unknown as Record<string, unknown>;
-  } catch (err) {
-    // schema 漂移（缺表缺列）/BUSY 等查询期异常：分类降级而非炸面板（classifyDbError，T13）
-    return {
-      available: false,
-      reason: classifyDbError(err),
-      anchorTime: null, kpi: null, trend: null, projects: null, sessions: null,
-    };
-  } finally {
-    opened.db.close();
-  }
+  return withReadonlyDb(
+    deps,
+    { anchorTime: null, kpi: null, trend: null, projects: null, sessions: null },
+    (db) => collectInsights(db, args, trendDays) as unknown as Record<string, unknown>,
+  );
 }

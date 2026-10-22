@@ -9,15 +9,11 @@
  */
 import { z } from "zod";
 import type { ToolDefinition } from "../registry.ts";
-import { resolveDbPath, resolveHeartbeatPath } from "../paths.ts";
-import { classifyDbError, openReadonlyDatabase } from "../db.ts";
 import { fetchCompactionEvents, fetchRequestTimeline, getSessionRow, resolveCurrentSession } from "../usage.ts";
+import { sessionMetaBlock, withReadonlyDb, type SessionToolDeps } from "./pipeline.ts";
 
 /** 工具依赖（测试注入缝；缺省从环境与宿主默认路径解析） */
-export interface SessionTimelineDeps {
-  dbPath?: string;
-  heartbeatPath?: string;
-}
+export type SessionTimelineDeps = SessionToolDeps;
 
 export function createSessionTimelineTool(
   deps: SessionTimelineDeps = {},
@@ -50,48 +46,24 @@ function collectSessionTimeline(
   deps: SessionTimelineDeps,
   args: Record<string, unknown>,
 ): Record<string, unknown> {
-  const dbPath = deps.dbPath ?? resolveDbPath();
-  const heartbeatPath = deps.heartbeatPath ?? resolveHeartbeatPath();
-
-  const opened = openReadonlyDatabase(dbPath);
-  if (!opened.ok) {
-    return { available: false, reason: opened.reason, session: null, requests: null, compactions: null };
-  }
-  try {
+  return withReadonlyDb(deps, { session: null, requests: null, compactions: null }, (db, heartbeatPath) => {
     const explicitId = typeof args.sessionId === "string" && args.sessionId ? args.sessionId : null;
-    const current = resolveCurrentSession(opened.db, heartbeatPath);
+    const current = resolveCurrentSession(db, heartbeatPath);
     if (!explicitId && !current) {
       return { available: false, reason: "no-interactive-session", session: null, requests: null, compactions: null };
     }
     const sessionId = explicitId ?? current!.id;
-    const source = explicitId ? "explicit" : current!.source;
-    const row = getSessionRow(opened.db, sessionId);
-    const requests = fetchRequestTimeline(opened.db, sessionId);
-    const compactions = fetchCompactionEvents(opened.db, sessionId, requests);
+    const source = explicitId ? ("explicit" as const) : current!.source;
+    const row = getSessionRow(db, sessionId);
+    const requests = fetchRequestTimeline(db, sessionId);
     return {
       available: true,
-      session: {
-        id: sessionId,
-        source,
-        heartbeatAt: source === "heartbeat" ? current!.heartbeatAt : null,
-        title: row?.title ?? null,
-        taskType: row?.taskType ?? null,
-        timeCreated: row?.timeCreated ?? null,
-        timeUpdated: row?.timeUpdated ?? null,
-      },
+      session: sessionMetaBlock(
+        { id: sessionId, source, heartbeatAt: source === "heartbeat" ? current!.heartbeatAt : null },
+        row,
+      ),
       requests,
-      compactions,
+      compactions: fetchCompactionEvents(db, sessionId, requests),
     };
-  } catch (err) {
-    // schema 漂移（缺表缺列）/BUSY 等查询期异常：分类降级而非炸面板（classifyDbError，T13）
-    return {
-      available: false,
-      reason: classifyDbError(err),
-      session: null,
-      requests: null,
-      compactions: null,
-    };
-  } finally {
-    opened.db.close();
-  }
+  });
 }

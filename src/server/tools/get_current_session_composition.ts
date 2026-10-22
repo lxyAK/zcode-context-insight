@@ -18,7 +18,7 @@ import type { ToolDefinition } from "../registry.ts";
 import { resolveDbPath, resolveHeartbeatPath, resolveRolloutDir } from "../paths.ts";
 import { classifyDbError, openReadonlyDatabase } from "../db.ts";
 import { readHeartbeat } from "../heartbeat.ts";
-import { resolveCurrentSession } from "../usage.ts";
+import { resolveInferredSession } from "../usage.ts";
 import { countByKind, pickFullAnchor, pickLatestInputTokens, readRolloutFile } from "../rollout.ts";
 import { calibrateToAnchor, estimateRawComposition, GROUP_ORDER } from "../composition.ts";
 
@@ -75,7 +75,8 @@ function collectCurrentSessionComposition(
       const opened = openReadonlyDatabase(deps.dbPath ?? resolveDbPath());
       if (opened.ok) {
         try {
-          const current = resolveCurrentSession(opened.db, ""); // 心跳路径传空 → 走推断兜底分支
+          // 心跳已先行判定缺失：直接走推断分支（resolveInferredSession，P1-8 归一）
+          const current = resolveInferredSession(opened.db);
           if (current) session = { id: current.id, source: current.source };
         } catch (err) {
           return {

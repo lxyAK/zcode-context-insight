@@ -16,8 +16,7 @@
  */
 import { z } from "zod";
 import type { ToolDefinition } from "../registry.ts";
-import { resolveDbPath } from "../paths.ts";
-import { classifyDbError, openReadonlyDatabase } from "../db.ts";
+import { withReadonlyDb } from "./pipeline.ts";
 
 /** 默认窗口：最近 91 个日历日（热力图 13 周 × 7 天） */
 const DEFAULT_DAYS = 91;
@@ -78,19 +77,13 @@ export function createActivityTool(deps: ActivityDeps = {}): ToolDefinition {
 
 /** 采集逻辑（同步：打开只读连接 + 一次投影查询 + JS 分桶；任何失败降级为 available=false） */
 function collectActivity(deps: ActivityDeps, days: number): Record<string, unknown> {
-  const dbPath = deps.dbPath ?? resolveDbPath();
   const nowMs = deps.nowMs ?? Date.now();
-
-  const opened = openReadonlyDatabase(dbPath);
-  if (!opened.ok) {
-    return unavailable(opened.reason);
-  }
-  try {
+  return withReadonlyDb(deps, { daily: null, models: null, providers: null }, (db) => {
     const startMs = windowStartMs(nowMs, days);
     // 投影最小列集后在 JS 分桶：按日分桶必须用本地时区日界，SQLite date() 只有 UTC/localtime
     // 两档且 localtime 受进程 TZ 环境影响，不可控；行数（窗口内请求级）在万级以内，可接受。
     // 上界 nowMs：晚于"当前时刻"的行不属于"最近 N 个日历日"窗口。
-    const rows = opened.db
+    const rows = db
       .prepare(
         `SELECT started_at, session_id, provider_id, model_id, computed_total_tokens
          FROM model_usage
@@ -113,18 +106,7 @@ function collectActivity(deps: ActivityDeps, days: number): Record<string, unkno
       models: aggregateBy(rows, (r) => r.provider_id, (r) => r.model_id),
       providers: aggregateBy(rows, (r) => r.provider_id, null),
     };
-  } catch (err) {
-    // schema 漂移（缺表缺列）/BUSY 等查询期异常：分类降级而非炸面板（classifyDbError，T13）
-    return unavailable(
-      classifyDbError(err),
-    );
-  } finally {
-    opened.db.close();
-  }
-}
-
-function unavailable(reason: string): Record<string, unknown> {
-  return { available: false, reason, daily: null, models: null, providers: null };
+  });
 }
 
 /** 按日聚合：稀疏返回（仅含有活动的日历日），date 升序 */

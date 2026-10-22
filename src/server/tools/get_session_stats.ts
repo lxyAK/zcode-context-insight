@@ -11,15 +11,11 @@
  */
 import { z } from "zod";
 import type { ToolDefinition } from "../registry.ts";
-import { resolveDbPath, resolveHeartbeatPath } from "../paths.ts";
-import { classifyDbError, openReadonlyDatabase } from "../db.ts";
 import { aggregateSessionStats, getSessionRow, resolveCurrentSession } from "../usage.ts";
+import { sessionMetaBlock, withReadonlyDb, type SessionToolDeps } from "./pipeline.ts";
 
 /** 工具依赖（测试注入缝；缺省从环境与宿主默认路径解析） */
-export interface SessionStatsDeps {
-  dbPath?: string;
-  heartbeatPath?: string;
-}
+export type SessionStatsDeps = SessionToolDeps;
 
 export function createSessionStatsTool(deps: SessionStatsDeps = {}): ToolDefinition {
   return {
@@ -47,44 +43,17 @@ export function createSessionStatsTool(deps: SessionStatsDeps = {}): ToolDefinit
 
 /** 采集逻辑（同步；任何失败降级为 available=false，不炸面板） */
 function collectSessionStats(deps: SessionStatsDeps, explicitId: string | null): Record<string, unknown> {
-  const dbPath = deps.dbPath ?? resolveDbPath();
-  const heartbeatPath = deps.heartbeatPath ?? resolveHeartbeatPath();
-
-  const opened = openReadonlyDatabase(dbPath);
-  if (!opened.ok) {
-    return { available: false, reason: opened.reason, session: null, stats: null };
-  }
-  try {
+  return withReadonlyDb(deps, { session: null, stats: null }, (db, heartbeatPath) => {
     const current = explicitId
       ? { id: explicitId, source: "explicit" as const, heartbeatAt: null }
-      : resolveCurrentSession(opened.db, heartbeatPath);
+      : resolveCurrentSession(db, heartbeatPath);
     if (!current) {
       return { available: false, reason: "no-interactive-session", session: null, stats: null };
     }
-    const row = getSessionRow(opened.db, current.id);
-    const stats = aggregateSessionStats(opened.db, current.id);
     return {
       available: true,
-      session: {
-        id: current.id,
-        source: current.source,
-        heartbeatAt: current.heartbeatAt,
-        title: row?.title ?? null,
-        taskType: row?.taskType ?? null,
-        timeCreated: row?.timeCreated ?? null,
-        timeUpdated: row?.timeUpdated ?? null,
-      },
-      stats,
+      session: sessionMetaBlock(current, getSessionRow(db, current.id)),
+      stats: aggregateSessionStats(db, current.id),
     };
-  } catch (err) {
-    // schema 漂移（缺表缺列）/BUSY 等查询期异常：分类降级而非炸面板（classifyDbError，T13）
-    return {
-      available: false,
-      reason: classifyDbError(err),
-      session: null,
-      stats: null,
-    };
-  } finally {
-    opened.db.close();
-  }
+  });
 }

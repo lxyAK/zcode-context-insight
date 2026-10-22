@@ -50,6 +50,15 @@ export function resolveCurrentSession(db: DatabaseSync, heartbeatPath: string): 
   if (heartbeat) {
     return { id: heartbeat.sessionId, source: "heartbeat", heartbeatAt: heartbeat.time };
   }
+  return resolveInferredSession(db);
+}
+
+/**
+ * 无心跳的兜底识别：最近活跃 interactive 会话（resolveCurrentSession 的推断分支，
+ * 单独导出供心跳已先行判定的调用方复用——如 request-detail 的 T13 心跳优先语义、
+ * composition 的显式/心跳前置识别；P1-8 会话识别归一）。
+ */
+export function resolveInferredSession(db: DatabaseSync): CurrentSession | null {
   const row = db
     .prepare(
       `SELECT id FROM session

@@ -9,16 +9,12 @@
  */
 import { z } from "zod";
 import type { ToolDefinition } from "../registry.ts";
-import { resolveDbPath, resolveHeartbeatPath } from "../paths.ts";
-import { classifyDbError, openReadonlyDatabase } from "../db.ts";
 import { resolveCurrentSession } from "../usage.ts";
 import { buildFleetTree } from "../fleet.ts";
+import { withReadonlyDb, type SessionToolDeps } from "./pipeline.ts";
 
 /** 工具依赖（测试注入缝；缺省从环境与宿主默认路径解析） */
-export interface FleetTreeDeps {
-  dbPath?: string;
-  heartbeatPath?: string;
-}
+export type FleetTreeDeps = SessionToolDeps;
 
 export function createFleetTreeTool(deps: FleetTreeDeps = {}): ToolDefinition {
   return {
@@ -51,44 +47,22 @@ function collectFleetTree(
   args: Record<string, unknown>,
 ): Record<string, unknown> {
   const requestedSessionId = typeof args.sessionId === "string" ? args.sessionId : undefined;
-  const dbPath = deps.dbPath ?? resolveDbPath();
-  const heartbeatPath = deps.heartbeatPath ?? resolveHeartbeatPath();
-
   // 显式指定的根无需开库即可先定下；当前会话识别需要库（兜底查询在库上进行）
-  const opened = openReadonlyDatabase(dbPath);
-  if (!opened.ok) {
-    return { available: false, reason: opened.reason, rootSessionSource: null, root: null };
-  }
-  try {
+  return withReadonlyDb(deps, { rootSessionSource: null, root: null }, (db, heartbeatPath) => {
     let rootId: string;
     let rootSource: "heartbeat" | "inferred" | "explicit";
     if (requestedSessionId) {
       rootId = requestedSessionId;
       rootSource = "explicit";
     } else {
-      const current = resolveCurrentSession(opened.db, heartbeatPath);
+      const current = resolveCurrentSession(db, heartbeatPath);
       if (!current) {
-        return {
-          available: false,
-          reason: "no-interactive-session",
-          rootSessionSource: null,
-          root: null,
-        };
+        return { available: false, reason: "no-interactive-session", rootSessionSource: null, root: null };
       }
       rootId = current.id;
       rootSource = current.source;
     }
-    const root = buildFleetTree(opened.db, rootId);
+    const root = buildFleetTree(db, rootId);
     return { available: true, rootSessionSource: rootSource, root };
-  } catch (err) {
-    // schema 漂移（缺表缺列）/BUSY 等查询期异常：分类降级而非炸面板（classifyDbError，T13）
-    return {
-      available: false,
-      reason: classifyDbError(err),
-      rootSessionSource: null,
-      root: null,
-    };
-  } finally {
-    opened.db.close();
-  }
+  });
 }

@@ -14,16 +14,14 @@
 import { join } from "node:path";
 import { z } from "zod";
 import type { ToolDefinition } from "../registry.ts";
-import { resolveDbPath, resolveHeartbeatPath, resolveRolloutDir } from "../paths.ts";
-import { classifyDbError, openReadonlyDatabase } from "../db.ts";
+import { resolveRolloutDir } from "../paths.ts";
 import { aggregateSessionUsage, getSessionRow, getLatestCompactionThreshold, getRecentContextTokens, resolveCurrentSession } from "../usage.ts";
 import { pickFullAnchor, readRolloutFile } from "../rollout.ts";
 import { calibrateToAnchor, estimateRawComposition, GROUP_ORDER } from "../composition.ts";
+import { sessionMetaBlock, withReadonlyDb, type SessionToolDeps } from "./pipeline.ts";
 
 /** 工具依赖（测试注入缝；缺省从环境与宿主默认路径解析） */
-export interface CurrentSessionReportDeps {
-  dbPath?: string;
-  heartbeatPath?: string;
+export interface CurrentSessionReportDeps extends SessionToolDeps {
   rolloutDir?: string;
 }
 
@@ -126,45 +124,18 @@ function buildComposition(
 
 /** 采集逻辑（同步；任何失败降级为 available=false，不炸面板） */
 function collectCurrentSessionReport(deps: CurrentSessionReportDeps): Record<string, unknown> {
-  const dbPath = deps.dbPath ?? resolveDbPath();
-  const heartbeatPath = deps.heartbeatPath ?? resolveHeartbeatPath();
-
-  const opened = openReadonlyDatabase(dbPath);
-  if (!opened.ok) {
-    return { available: false, reason: opened.reason, session: null, usage: null };
-  }
-  try {
-    const current = resolveCurrentSession(opened.db, heartbeatPath);
+  return withReadonlyDb(deps, { session: null, usage: null }, (db, heartbeatPath) => {
+    const current = resolveCurrentSession(db, heartbeatPath);
     if (!current) {
       return { available: false, reason: "no-interactive-session", session: null, usage: null };
     }
-    const row = getSessionRow(opened.db, current.id);
-    const usage = aggregateSessionUsage(opened.db, current.id);
-    const composition = buildComposition(deps, current.id, usage.computedTotalTokens);
+    const usage = aggregateSessionUsage(db, current.id);
     return {
       available: true,
-      session: {
-        id: current.id,
-        source: current.source,
-        heartbeatAt: current.heartbeatAt,
-        title: row?.title ?? null,
-        taskType: row?.taskType ?? null,
-        timeCreated: row?.timeCreated ?? null,
-        timeUpdated: row?.timeUpdated ?? null,
-      },
+      session: sessionMetaBlock(current, getSessionRow(db, current.id)),
       usage,
-      composition,
-      compactionWarning: assessCompaction(opened.db, current.id),
+      composition: buildComposition(deps, current.id, usage.computedTotalTokens),
+      compactionWarning: assessCompaction(db, current.id),
     };
-  } catch (err) {
-    // schema 漂移（缺表缺列）/BUSY 等查询期异常：分类降级而非炸面板（classifyDbError，T13）
-    return {
-      available: false,
-      reason: classifyDbError(err),
-      session: null,
-      usage: null,
-    };
-  } finally {
-    opened.db.close();
-  }
+  });
 }
