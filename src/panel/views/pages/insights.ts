@@ -47,7 +47,7 @@ interface FilterState {
 
 export const insightsPage: PageDefinition = {
   id: "insights",
-  title: "Insights",
+  title: t("navInsights"),
   mount: async (ctx: PageContext) => {
     const filter: FilterState = { project: "", time: "", size: "", sort: "recent" };
     let anchorTime = 0; // 最近一次载荷的锚点（时间筛选以此为基准，确定性）

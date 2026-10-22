@@ -46,7 +46,7 @@ interface OverviewPayload {
 
 export const contextPage: PageDefinition = {
   id: "context",
-  title: "Context",
+  title: t("navContext"),
   mount: async (ctx: PageContext) => {
     const { container, doc } = ctx;
 
