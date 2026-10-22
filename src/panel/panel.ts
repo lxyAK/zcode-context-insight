@@ -25,6 +25,7 @@ interface UsagePayload {
 import pkg from "../../package.json";
 import { BridgeClient, PostMessageTransport } from "./bridge.ts";
 import type { PostTarget } from "./bridge.ts";
+import { createBrowserView } from "./views/browser.ts";
 
 /** MCP Apps 协议版本（研究笔记 02 §2，与官方面板一致） */
 export const PROTOCOL_VERSION = "2026-01-26";
@@ -86,7 +87,21 @@ export async function mountPanel(opts: MountOptions): Promise<void> {
     usage = null; // 桥错误 → 降级提示
   }
 
-  renderOverview(container, init, JSON.parse(textBlock.text), usage);
+  // Context Browser（T6）：请求序列 + 组成明细（分组/DNA），视图独立文件，此处仅装配
+  const browser = createBrowserView({ doc: container.ownerDocument, callTool: makeCallTool(bridge) });
+  renderOverview(container, init, JSON.parse(textBlock.text), usage, browser.element);
+  await browser.render();
+}
+
+/** callServerTool 包装：面板数据工具统一经 tools/call 取 JSON 文本载荷 */
+function makeCallTool(bridge: BridgeClient) {
+  return async (name: string, args: Record<string, unknown>): Promise<Record<string, unknown>> => {
+    const result = (await bridge.request("tools/call", { name, arguments: args })) as {
+      content?: Array<{ type: string; text?: string }>;
+    };
+    const text = result.content?.find((c) => c.type === "text")?.text;
+    return text ? (JSON.parse(text) as Record<string, unknown>) : {};
+  };
 }
 
 function el(
@@ -106,6 +121,7 @@ function renderOverview(
   init: { hostInfo?: { name?: string; version?: string } },
   payload: { plugin?: string; version?: string; server?: string; greeting?: string },
   usage: UsagePayload | null,
+  browserElement?: HTMLElement,
 ): void {
   const doc = container.ownerDocument;
   container.replaceChildren();
@@ -129,9 +145,15 @@ function renderOverview(
     el(doc, "p", "zci-greeting", payload.greeting ?? ""),
   );
 
+  const usageSection = renderUsageSection(doc, usage, kv);
+  const browserSection = el(doc, "section", "zci-section");
+  browserSection.append(
+    el(doc, "h2", "zci-subtitle", "Context Browser"),
+    browserElement ?? el(doc, "p", "zci-status", "浏览器视图未就绪"),
+  );
   const footer = el(doc, "footer", "zci-footer", "骨架就绪：后续工单将在此装载 Insights / Context 仪表盘 / Fleet 页面。");
 
-  container.append(header, section, renderUsageSection(doc, usage, kv), footer);
+  container.append(header, section, usageSection, browserSection, footer);
 }
 
 /** 当前会话精确用量区（T2）：数字 + 识别来源标注（心跳精确 / 推断）；不可用时降级提示 */
