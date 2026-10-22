@@ -107,3 +107,77 @@ body,
   color: var(--color-text-on-warning, #fff);
   background: var(--color-warning, #e67e22);
 }
+
+/* T7 事件流 / 文件活动列表：限高滚动容器 + 行内布局 */
+.zci-list {
+  max-height: 260px;
+  overflow-y: auto;
+  border: 1px solid var(--color-border-default, #ddd);
+  border-radius: 6px;
+}
+
+.zci-list-item {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 3px 8px;
+  border-bottom: 1px solid var(--color-border-default, #eee);
+  font-size: 12px;
+}
+
+.zci-list-item:last-child {
+  border-bottom: none;
+}
+
+.zci-item-time {
+  flex: none;
+  font-family: ui-monospace, Consolas, monospace;
+  color: var(--color-text-secondary, #888);
+}
+
+.zci-item-op {
+  flex: none;
+  min-width: 3em;
+}
+
+.zci-item-path {
+  flex: 1 1 auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  direction: rtl; /* Windows 绝对路径长：右对齐截断保留文件名 */
+  text-align: left;
+}
+
+.zci-item-main {
+  flex: 1 1 auto;
+}
+
+.zci-item-lines {
+  flex: none;
+  font-family: ui-monospace, Consolas, monospace;
+}
+
+.zci-item-lines:not(:empty) {
+  color: var(--color-text-secondary, #888);
+}
+
+.zci-tag-error {
+  flex: none;
+  font-size: 10px;
+  padding: 0 4px;
+  border-radius: 4px;
+  color: var(--color-text-on-danger, #fff);
+  background: var(--color-danger, #c0392b);
+}
+
+/* 空态：available=true 但无记录 */
+.zci-empty {
+  margin: 0;
+  padding: 10px 8px;
+  font-size: 12px;
+  color: var(--color-text-secondary, #888);
+  border: 1px dashed var(--color-border-default, #ddd);
+  border-radius: 6px;
+  text-align: center;
+}
