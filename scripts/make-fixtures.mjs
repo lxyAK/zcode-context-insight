@@ -107,6 +107,17 @@ const DDL = [
 const S_MAIN = "session_00000000000000000000000000000001"; // interactive，time_updated 最新 → 兜底应选中
 const S_OLD = "session_00000000000000000000000000000002"; // interactive，较旧
 const S_SUB = "sess_subagent_agent_00000000-0000-4000-8000-000000000003"; // subagent_child，time_updated 比 S_OLD 新 → 验证兜底必须过滤 task_type
+// ---- T8 追加（跨会话 KPI / 7 天趋势 / 筛选所需的多日期、多项目、多规模行集）----
+// T0 = 2026-10-21T16:26:40Z（UTC 日 D0）；DAY = 86400000
+const DAY = 86400000;
+const S_DAY1 = "session_00000000000000000000000000000011"; // D-1（窗口内），项目 A，大规模 50000 token
+const S_DAY3 = "session_00000000000000000000000000000012"; // D-3（窗口内），项目 B，两行共 3000
+const S_DAY8 = "session_00000000000000000000000000000013"; // D-8（7 天窗口外），项目 B，500 token
+const S_EMPTY = "session_00000000000000000000000000000014"; // D-1，项目 A，无任何 model_usage 行
+
+/** 项目 B：与项目 A 不同的 project_id / directory（筛选下拉数据源） */
+const PROJ_B = "proj_d-.opensource-other-project";
+const DIR_B = "D:\\.opensource\\other-project";
 
 function insertSessions(db) {
   const stmt = db.prepare(
@@ -119,6 +130,11 @@ function insertSessions(db) {
   stmt.run(S_MAIN, proj, null, S_MAIN, dir, "夹具主会话（当前）", "3.16.2", T0, T0 + 60000, "interactive");
   stmt.run(S_OLD, proj, null, S_OLD, dir, "夹具旧会话", "3.16.2", T0, T0 + 30000, "interactive");
   stmt.run(S_SUB, proj, S_MAIN, S_SUB, dir, "夹具子代理会话", "3.16.2", T0, T0 + 50000, "subagent_child");
+  // T8 追加会话：跨 4 个活跃日（D0 / D-1 / D-3 / D-8）、两个项目、多种规模
+  stmt.run(S_DAY1, proj, null, S_DAY1, dir, "夹具项目A大会话", "3.16.2", T0 - DAY + 3600000, T0 - DAY + 7200000, "interactive");
+  stmt.run(S_DAY3, PROJ_B, null, S_DAY3, DIR_B, "夹具项目B会话", "3.16.2", T0 - 3 * DAY + 3600000, T0 - 3 * DAY + 7200000, "interactive");
+  stmt.run(S_DAY8, PROJ_B, null, S_DAY8, DIR_B, "夹具项目B旧会话", "3.16.2", T0 - 8 * DAY + 3600000, T0 - 8 * DAY + 7200000, "interactive");
+  stmt.run(S_EMPTY, proj, null, S_EMPTY, dir, "夹具零用量会话", "3.16.2", T0 - DAY + 7000000, T0 - DAY + 8000000, "interactive");
 }
 
 /**
@@ -154,6 +170,19 @@ function insertModelUsage(db) {
   // S_SUB（子代理）：一行，验证聚合按 session_id 隔离
   row("mu_sub_1", S_SUB, "turn_fixture_sub", "subagent", "subagent_child",
     T0 + 40000, 4000, 900, 2000, 300, 0, 0, 1500, 2300);
+  // ---- T8 追加行集（手算期望值见 test/insights.test.mjs 顶部注释）----
+  // S_DAY1：D-1 单行 50000（大规模，验证 minTokens 筛选与 sort=tokens）
+  row("mu_day1_1", S_DAY1, "turn_fixture_day1", "main_turn", "interactive",
+    T0 - DAY + 3700000, 3000, 800, 48000, 2000, 0, 0, 0, 50000);
+  // S_DAY3：D-3 两行共 3000
+  row("mu_day3_1", S_DAY3, "turn_fixture_day3", "main_turn", "interactive",
+    T0 - 3 * DAY + 3700000, 2000, 700, 900, 100, 0, 0, 0, 1000);
+  row("mu_day3_2", S_DAY3, "turn_fixture_day3", "main_turn", "interactive",
+    T0 - 3 * DAY + 6500000, 2000, 600, 1900, 100, 0, 0, 0, 2000);
+  // S_DAY8：D-8 单行 500（在 7 天窗口 [D-6, D0] 之外，验证趋势窗口边界）
+  row("mu_day8_1", S_DAY8, "turn_fixture_day8", "main_turn", "interactive",
+    T0 - 8 * DAY + 3700000, 1000, 500, 480, 20, 0, 0, 0, 500);
+  // S_EMPTY：无任何行（验证 LEFT JOIN 语义：requests=0 / totalTokens=0 仍出现在会话列表）
 }
 
 function insertTurnUsage(db) {
