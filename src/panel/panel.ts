@@ -25,6 +25,7 @@ interface UsagePayload {
 import pkg from "../../package.json";
 import { BridgeClient, PostMessageTransport } from "./bridge.ts";
 import type { PostTarget } from "./bridge.ts";
+import { renderCompositionSection, type CompositionPayload } from "./views/composition.ts";
 
 /** MCP Apps 协议版本（研究笔记 02 §2，与官方面板一致） */
 export const PROTOCOL_VERSION = "2026-01-26";
@@ -86,7 +87,20 @@ export async function mountPanel(opts: MountOptions): Promise<void> {
     usage = null; // 桥错误 → 降级提示
   }
 
-  renderOverview(container, init, JSON.parse(textBlock.text), usage);
+  // 上下文组成（T3）：独立 try/catch，失败不炸其他区块
+  let composition: CompositionPayload | null = null;
+  try {
+    const compResult = (await bridge.request("tools/call", {
+      name: "get_current_session_composition",
+      arguments: {},
+    })) as { content?: Array<{ type: string; text?: string }> };
+    const compText = compResult.content?.find((c) => c.type === "text")?.text;
+    composition = compText ? (JSON.parse(compText) as CompositionPayload) : null;
+  } catch {
+    composition = null;
+  }
+
+  renderOverview(container, init, JSON.parse(textBlock.text), usage, composition);
 }
 
 function el(
@@ -106,6 +120,7 @@ function renderOverview(
   init: { hostInfo?: { name?: string; version?: string } },
   payload: { plugin?: string; version?: string; server?: string; greeting?: string },
   usage: UsagePayload | null,
+  composition: CompositionPayload | null,
 ): void {
   const doc = container.ownerDocument;
   container.replaceChildren();
@@ -131,7 +146,7 @@ function renderOverview(
 
   const footer = el(doc, "footer", "zci-footer", "骨架就绪：后续工单将在此装载 Insights / Context 仪表盘 / Fleet 页面。");
 
-  container.append(header, section, renderUsageSection(doc, usage, kv), footer);
+  container.append(header, section, renderUsageSection(doc, usage, kv), renderCompositionSection(doc, composition), footer);
 }
 
 /** 当前会话精确用量区（T2）：数字 + 识别来源标注（心跳精确 / 推断）；不可用时降级提示 */
