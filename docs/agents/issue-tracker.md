@@ -11,6 +11,7 @@ Issues and specs for this repo live as GitHub issues. Use the `gh` CLI for all o
 - **Comment on an issue**: `gh issue comment <number> --body "..."`
 - **Apply / remove labels**: `gh issue edit <number> --add-label "..."` / `--remove-label "..."`
 - **Close**: `gh issue close <number> --comment "..."`
+- **编号与代号独立**：issue 编号与标题中的工单代号（T1、T2…）是两个互不对应的序列。读工单、认领、派工一律以标题中的代号为键；向子代理派工的提示词必须引用工单**标题原文**，不得只写编号。
 
 Infer the repo from `git remote -v`; `gh` does this automatically when run inside a clone.
 
