@@ -19,7 +19,7 @@ const fixtureHeartbeat = join(repoRoot, "test", "fixtures", "heartbeat.json");
 // 夹具会话 ID（与 scripts/make-fixtures.mjs 保持同源常量）
 const S_MAIN = "session_00000000000000000000000000000001";
 const S_OLD = "session_00000000000000000000000000000002";
-const S_NEAR = "session_00000000000000000000000000000004"; // time_updated 全场最新的 interactive（T11）
+const S_NEAR = "session_00000000000000000000000000000005"; // time_updated 全场最新的 interactive（T11）
 
 // S_MAIN 的 model_usage 手算聚合（全请求 6 行；行集见 make-fixtures.mjs 注释，
 // T5 追加了 mu_main_4 重试 / mu_main_5 超限 error(ttft NULL) / mu_main_6 三行）

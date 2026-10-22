@@ -21,7 +21,7 @@ const fixtureRolloutDir = join(repoRoot, "test", "fixtures", "rollout");
 // 夹具会话 ID（与 scripts/make-fixtures.mjs 保持同源常量）
 const S_MAIN = "session_00000000000000000000000000000001"; // 心跳指向；带压缩历史（阈值 1800）
 const S_OLD = "session_00000000000000000000000000000002"; // 无压缩历史
-const S_NEAR = "session_00000000000000000000000000000004"; // time_updated 最新 → 无心跳兜底选中；占用 900/阈值 1000
+const S_NEAR = "session_00000000000000000000000000000005"; // time_updated 最新 → 无心跳兜底选中；占用 900/阈值 1000
 
 /** 写一个临时心跳文件，返回路径（测试后由调用方清理目录） */
 function writeHeartbeat(dir, obj) {

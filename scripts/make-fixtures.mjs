@@ -186,8 +186,12 @@ function insertModelUsage(db) {
   // 压缩阈值依据 preCompactTokenCount=1000（下方 part 行）→ 占用率 0.9 ≥ 0.8，触发接近压缩提醒。
   // S_NEAR 期望聚合：requests=1, input=900, output=100, reasoning=0,
   //   cacheRead=700, cacheWrite=0, computedTotal=1000, ttft=700。
+  // 行时间置于 T9 的 91 天统计窗口之外（T0-100d）：T11 的压缩提醒与推断兜底均不依赖
+  // 行时间在窗口内（ratio 只按会话过滤取最近 completed main_turn；兜底按 session.time_updated），
+  // 避免破坏 T9 按日/模型/供应商的全库手算期望。
+  const T_NEAR = T0 - 100 * 86400000;
   row("mu_near_1", S_NEAR, "turn_fixture_near", "main_turn", "interactive",
-    T0 + 85000, 1500, 700, 900, 100, 0, 0, 700, 1000);
+    T_NEAR + 20000, 1500, 700, 900, 100, 0, 0, 700, 1000);
 }
 
 /**
@@ -251,16 +255,17 @@ function insertMessageAndPart(db) {
         keptMessageCount: 1,
       },
     }), 2);
-  // S_NEAR（T11）的压缩历史：preCompactTokenCount=1000 是该会话的实测压缩阈值代理
+  // S_NEAR（T11）的压缩历史：preCompactTokenCount=1000 是该会话的实测压缩阈值代理。
+  // 时间与 mu_near_1 同期（T0-100d，见 insertModelUsage 注释），保持"请求→压缩"先后自洽
   db.prepare(
     `INSERT INTO message (id, session_id, time_created, time_updated, data, sequence)
      VALUES (?, ?, ?, ?, ?, ?)`,
-  ).run("msg_fixture_near", S_NEAR, T0 + 82000, T0 + 82000,
-    JSON.stringify({ role: "user", time: T0 + 82000 }), 1);
+  ).run("msg_fixture_near", S_NEAR, T0 - 100 * 86400000 + 10000, T0 - 100 * 86400000 + 10000,
+    JSON.stringify({ role: "user", time: T0 - 100 * 86400000 + 10000 }), 1);
   db.prepare(
     `INSERT INTO part (id, message_id, session_id, time_created, time_updated, data, sequence)
      VALUES (?, ?, ?, ?, ?, ?, ?)`,
-  ).run("part_fixture_compact_near", "msg_fixture_near", S_NEAR, T0 + 86000, T0 + 86000,
+  ).run("part_fixture_compact_near", "msg_fixture_near", S_NEAR, T0 - 100 * 86400000 + 60000, T0 - 100 * 86400000 + 60000,
     JSON.stringify({
       type: "compaction",
       auto: true,
