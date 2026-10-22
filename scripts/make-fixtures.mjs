@@ -1,20 +1,23 @@
 /**
- * 合成夹具生成脚本（T2 基线，后续工单在此追加行集）：
+ * 合成夹具生成脚本（T2 db 基线 + T3 rollout JSONL，后续工单在此追加行集）：
  *  - test/fixtures/db.sqlite：结构与真实宿主库 schema 一致（DDL 对照研究笔记 03 §2-§5），
  *    行集为手工设计的最小集，期望值见 test/session-usage.test.mjs 的手算常量。
  *  - test/fixtures/heartbeat.json：手工静态文件，直接落仓，不经本脚本。
+ *  - test/fixtures/rollout/model-io-<sessionId>.jsonl：rollout JSONL 夹具（T3），
+ *    结构对照研究笔记 03 §7（内容脱敏合成），期望值见 test/composition.test.mjs 手算常量。
  *
  * 红线：本脚本只写仓库内夹具路径，绝不触碰 ~/.zcode 真实库。
  * 幂等：每次删除重建。
  */
 import { DatabaseSync } from "node:sqlite";
-import { mkdir, rm } from "node:fs/promises";
+import { mkdir, rm, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const repoRoot = dirname(dirname(fileURLToPath(import.meta.url)));
 const fixtureDir = join(repoRoot, "test", "fixtures");
 const dbPath = join(fixtureDir, "db.sqlite");
+const rolloutDir = join(fixtureDir, "rollout");
 
 /** 夹具时间基准（固定毫秒，测试不依赖墙钟） */
 const T0 = 1792600000000;
@@ -191,6 +194,196 @@ function insertMessageAndPart(db) {
     }), 2);
 }
 
+// ============================================================================
+// rollout JSONL 夹具（T3 组成估算真值来源）
+//
+// 启发式折算口径（与被测实现一致的规格声明）：
+//   tokens(text) = ceil(ASCII 字符数 / 4) + CJK 字符数 × 1
+// 锚点校准：scale = anchor.usage.inputTokens / Σraw；各组 floor(raw×scale) 后按
+// 最大余数法补齐差值（余数并列按 system→tools→history→currentTurn 组序），保证
+// Σcalibrated === anchor.usage.inputTokens。
+//
+// 工具定义（JSON.stringify 序列化后精确字符数已离线核验）：
+//   TOOL1 序列化 245 字符（全 ASCII）→ ceil(245/4) = 62 tokens
+//   TOOL2 序列化 145 字符（全 ASCII）→ ceil(145/4) = 37 tokens
+const TOOL1 = { name: "Read", description: "d".repeat(120), input_schema: { type: "object", properties: { path: { type: "string" } }, required: ["path"] } };
+const TOOL2 = { name: "Bash", description: "d".repeat(80), input_schema: { type: "object" } };
+
+/** 构造一行 rollout 记录（结构对照真实 model-io JSONL，研究笔记 03 §7） */
+function rolloutLine({ requestId, startedAt, kind, offset, messages, usage, systemBlocks = [], tools = [TOOL1, TOOL2], querySource = "main_turn", sessionId }) {
+  return JSON.stringify({
+    type: "model_io",
+    sessionId,
+    requestId,
+    attempt: 1,
+    startedAt,
+    completedAt: startedAt, // 简化：夹具不断言完成时间
+    querySource,
+    model: { modelId: "GLM-5.3", providerId: "account:fixture" },
+    request: {
+      body: { model: "GLM-5.3", max_tokens: 4096, system: systemBlocks, tools, stream: true },
+      messages,
+      toolNames: tools.map((t) => t.name),
+      // 语义契约：messages 携带会话消息流的 [messageOffset, messageCount) 区间
+      messageCount: offset + messages.length,
+      messagesKind: kind,
+      messageOffset: offset,
+    },
+    response: { finishReason: "tool_calls", usage },
+  });
+}
+
+const usage = (inputTokens, outputTokens, cacheReadTokens) => ({
+  inputTokens,
+  outputTokens,
+  totalTokens: inputTokens + outputTokens,
+  cacheReadTokens,
+  cacheWriteTokens: 0,
+});
+
+/** 简写构造器：system/user/tool 为字符串 content，assistant 为分块数组 */
+const sysMsg = (text) => ({ role: "system", content: text, cacheControl: "ephemeral" });
+const userMsg = (text) => ({ role: "user", content: text });
+const toolMsg = (text) => ({ role: "tool", content: text, toolCallId: "call_fixture", toolName: "Read" });
+const textMsg = (role, text) => ({ role, content: [{ type: "text", text }] });
+const reasoningMsg = (reasoningLen, textLen) => ({
+  role: "assistant",
+  content: [
+    { type: "reasoning", text: "r".repeat(reasoningLen) },
+    { type: "text", text: "a".repeat(textLen) },
+  ],
+});
+
+/**
+ * S_MAIN 主会话 rollout（5 行：full / delta / full(锚点,压缩后) / delta / tail）。
+ *
+ * 锚点 = 第 3 行（req-main-3，messagesKind=full，压缩后完整快照）四分组原始折算推导：
+ *  - system 组 = body.system 块 + messages 中 role=system 的消息
+ *      'S'×100（ASCII）→ ceil(100/4)=25；'系统提示'×6（24 个 CJK）→ 24
+ *      'm'×40 → 10；'摘要'×31（62 个 CJK，压缩摘要消息）→ 62            合计 121
+ *  - tools 组 = TOOL1(62) + TOOL2(37)                                    合计 99
+ *  - history 组 = 最后一条 user 之前的非 system 消息：
+ *      '任务'×10（20 CJK）→ 20；'a'×200 → 50；'t'×400 → 100             合计 170
+ *  - currentTurn 组 = 最后一条 user（'q'×80 → 20）及其后：
+ *      reasoning 'r'×40 → 10 + text 'a'×80 → 20；'t'×240 → 60           合计 110
+ *  Σraw = 500；锚点 usage.inputTokens = 625 → scale = 1.25
+ *  校准：floor 值 151/123/212/137（和 623），余 2 按最大余数（tools .75 > history .5
+ *  = currentTurn .5 > system .25，并列按组序）补 tools→124、history→213
+ *  → calibrated = { system:151, tools:124, history:213, currentTurn:137 }，Σ = 625
+ */
+function buildMainRolloutLines() {
+  return [
+    // 第 1 行：turn 1 首次请求，完整快照（早于压缩）
+    rolloutLine({
+      sessionId: S_MAIN,
+      requestId: "req-main-1",
+      startedAt: "2026-10-22T08:00:00.000Z",
+      kind: "full",
+      offset: 0,
+      systemBlocks: [{ type: "text", text: "S".repeat(100) }],
+      messages: [sysMsg("m".repeat(40)), userMsg("q".repeat(80))],
+      usage: usage(300, 50, 250),
+    }),
+    // 第 2 行：turn 1 续发，只带尾部增量（前 2 条已缓存）
+    rolloutLine({
+      sessionId: S_MAIN,
+      requestId: "req-main-2",
+      startedAt: "2026-10-22T08:00:10.000Z",
+      kind: "delta",
+      offset: 2,
+      messages: [textMsg("assistant", "a".repeat(120)), toolMsg("t".repeat(240))],
+      usage: usage(450, 30, 420),
+    }),
+    // 第 3 行（锚点）：压缩发生后宿主重发完整上下文；idx4 的 system 消息为压缩摘要
+    rolloutLine({
+      sessionId: S_MAIN,
+      requestId: "req-main-3",
+      startedAt: "2026-10-22T08:00:30.000Z",
+      kind: "full",
+      offset: 0,
+      systemBlocks: [
+        { type: "text", text: "S".repeat(100) },
+        { type: "text", text: "系统提示".repeat(6) },
+      ],
+      messages: [
+        sysMsg("m".repeat(40)), // idx0 → system 组（10）
+        userMsg("任务".repeat(10)), // idx1 → 历史消息（20）
+        textMsg("assistant", "a".repeat(200)), // idx2 → 历史消息（50）
+        toolMsg("t".repeat(400)), // idx3 → 历史消息（100）
+        sysMsg("摘要".repeat(31)), // idx4 压缩摘要 → system 组（62）
+        userMsg("q".repeat(80)), // idx5 最后一条 user → 当前轮（20）
+        reasoningMsg(40, 80), // idx6 → 当前轮（10+20）
+        toolMsg("t".repeat(240)), // idx7 → 当前轮（60）
+      ],
+      usage: usage(625, 100, 575),
+    }),
+    // 第 4 行：turn 续发增量（锚点后第 1 条 delta，offset=8）
+    rolloutLine({
+      sessionId: S_MAIN,
+      requestId: "req-main-4",
+      startedAt: "2026-10-22T08:00:40.000Z",
+      kind: "delta",
+      offset: 8,
+      messages: [textMsg("assistant", "x".repeat(80))],
+      usage: usage(700, 20, 680),
+    }),
+    // 第 5 行：tail 中间形态（最后一条请求，但非 full——不得被选为锚点）
+    rolloutLine({
+      sessionId: S_MAIN,
+      requestId: "req-main-5",
+      startedAt: "2026-10-22T08:00:50.000Z",
+      kind: "tail",
+      offset: 4,
+      messages: [userMsg("u".repeat(60)), textMsg("assistant", "y".repeat(100)), toolMsg("z".repeat(120))],
+      usage: usage(800, 10, 790),
+    }),
+  ];
+}
+
+/**
+ * S_SUB 子代理会话 rollout：纯 delta/tail（无 full 快照）+ 1 行损坏 JSON。
+ * 期望（test/composition.test.mjs）：解析记录 2 行（损坏行跳过），anchor=null，
+ * compositionReason='no-full-snapshot'，精确总量取末行 usage.inputTokens=520。
+ */
+function buildSubRolloutLines() {
+  return [
+    "{ broken json（模拟宿主写一半崩溃的行）",
+    rolloutLine({
+      sessionId: S_SUB,
+      requestId: "req-sub-1",
+      startedAt: "2026-10-22T08:01:00.000Z",
+      kind: "delta",
+      offset: 6,
+      querySource: "subagent",
+      messages: [textMsg("assistant", "b".repeat(100)), toolMsg("t".repeat(200))],
+      usage: usage(500, 40, 460),
+    }),
+    rolloutLine({
+      sessionId: S_SUB,
+      requestId: "req-sub-2",
+      startedAt: "2026-10-22T08:01:10.000Z",
+      kind: "tail",
+      offset: 6,
+      querySource: "subagent",
+      messages: [textMsg("assistant", "c".repeat(80))],
+      usage: usage(520, 5, 500),
+    }),
+  ];
+}
+
+/** 写 rollout 夹具文件（幂等：先清目录） */
+async function writeRolloutFixtures() {
+  await rm(rolloutDir, { recursive: true, force: true });
+  await mkdir(rolloutDir, { recursive: true });
+  const files = [
+    [`model-io-${S_MAIN}.jsonl`, buildMainRolloutLines()],
+    [`model-io-${S_SUB}.jsonl`, buildSubRolloutLines()],
+  ];
+  for (const [name, lines] of files) {
+    await writeFile(join(rolloutDir, name), lines.join("\n") + "\n", "utf8");
+  }
+}
+
 await rm(dbPath, { force: true });
 await mkdir(fixtureDir, { recursive: true });
 
@@ -204,4 +397,6 @@ insertMessageAndPart(db);
 db.exec("COMMIT");
 db.close();
 
-console.log(`夹具已生成: ${dbPath}`);
+await writeRolloutFixtures();
+
+console.log(`夹具已生成: ${dbPath} + ${rolloutDir}{${S_MAIN.slice(0, 18)}…, ${S_SUB.slice(0, 22)}…}`);
