@@ -16,6 +16,12 @@ async function startServer() {
   const child = spawn(process.execPath, ["dist/server.mjs"], {
     cwd: repoRoot,
     stdio: ["pipe", "pipe", "pipe"],
+    // 红线隔离：e2e 不读真实宿主库，注入不存在的 db/心跳路径（工具应走 available=false 降级）
+    env: {
+      ...process.env,
+      ZCI_DB_PATH: join(repoRoot, "test", "fixtures", "e2e-absent.sqlite"),
+      ZCI_HEARTBEAT_PATH: join(repoRoot, "test", "fixtures", "e2e-absent.json"),
+    },
   });
   const stderr = [];
   child.stderr.setEncoding("utf8");
@@ -112,6 +118,24 @@ describe("MCP server（stdio e2e）", () => {
     expect(payload.version).toBe(pkg.version); // 独立真值来源：package.json
     expect(typeof payload.greeting).toBe("string");
     expect(payload.greeting.length).toBeGreaterThan(0);
+  });
+
+  it("tools/list 含 get_current_session_usage，app+model 双可见", async () => {
+    const result = await server.request("tools/list", {});
+    const tool = result.tools.find((t) => t.name === "get_current_session_usage");
+    expect(tool, `工具列表: ${JSON.stringify(result.tools.map((t) => t.name))}`).toBeTruthy();
+    expect(tool._meta?.ui?.visibility).toEqual(["model", "app"]);
+  });
+
+  it("tools/call get_current_session_usage（db 缺失时）降级 available=false，不报错", async () => {
+    const result = await server.request("tools/call", {
+      name: "get_current_session_usage",
+      arguments: {},
+    });
+    expect(result.isError).toBeFalsy();
+    const payload = result.structuredContent ?? JSON.parse(result.content[0].text);
+    expect(payload.available).toBe(false);
+    expect(payload.reason).toBe("db-not-found");
   });
 
   it("resources/read 以 mcp-app MIME 返回自包含的 panel.html", async () => {

@@ -14,10 +14,11 @@ import { StdioServerTransport } from "@modelcontextprotocol/server/stdio";
 import { PLUGIN_NAME, PLUGIN_VERSION } from "./meta.ts";
 import type { ToolDefinition } from "./registry.ts";
 import { getOverviewTool } from "./tools/get_overview.ts";
+import { createCurrentSessionUsageTool } from "./tools/get_current_session_usage.ts";
 import { registerPanelResource } from "./panel-resource.ts";
 
 /** 工具注册表：新工具在此追加（扩展缝） */
-const tools: ToolDefinition[] = [getOverviewTool];
+const tools: ToolDefinition[] = [getOverviewTool, createCurrentSessionUsageTool()];
 
 function registerTools(server: McpServer, defs: ToolDefinition[]): void {
   for (const def of defs) {
