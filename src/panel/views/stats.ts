@@ -4,6 +4,7 @@
  * 无数据项（样本缺失的比率/分位数、无请求时的量值）显示占位 "—" 而非 0。
  */
 
+import { el } from "./dom.ts";
 /** 会话统计载荷（get_session_stats 的 structuredContent 形状） */
 export interface SessionStatsPayload {
   available: boolean;
@@ -32,13 +33,6 @@ export interface SessionStatsPayload {
 
 /** 占位符：样本缺失/无数据时显示，与真 0 区分（工单口径） */
 const PLACEHOLDER = "—";
-
-function el(doc: Document, tag: string, className: string, text?: string): HTMLElement {
-  const node = doc.createElement(tag);
-  node.className = className;
-  if (text !== undefined) node.textContent = text;
-  return node;
-}
 
 /** 比率 → 百分比（一位小数）；null 显示占位 */
 function fmtPercent(rate: number | null): string {

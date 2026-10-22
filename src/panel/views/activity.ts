@@ -9,6 +9,7 @@
  *  - 单模型：一段 100% 完整圆环，图例单项 100.0%。
  */
 import { t } from "../i18n.ts";
+import { el } from "./dom.ts";
 
 const SVG_NS = "http://www.w3.org/2000/svg";
 
@@ -57,13 +58,6 @@ const PALETTE = [
 /** 热力图格子几何（含 2px 间隙） */
 const CELL = 12;
 const CELL_SIZE = 10;
-
-function el(doc: Document, tag: string, className: string, text?: string): HTMLElement {
-  const node = doc.createElement(tag);
-  node.className = className;
-  if (text !== undefined) node.textContent = text;
-  return node;
-}
 
 /** 占比标签：统一一位小数（95.0% / 5.0% / 100.0%） */
 function pctLabel(part: number, total: number): string {

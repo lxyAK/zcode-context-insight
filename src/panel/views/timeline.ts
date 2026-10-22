@@ -11,6 +11,7 @@
  */
 import uPlot from "uplot";
 import "uplot/dist/uPlot.min.css";
+import { el } from "./dom.ts";
 
 /** 逐请求时间线行（get_session_timeline 返回形状） */
 export interface TimelineRequest {
@@ -62,13 +63,6 @@ const COLOR_CACHE_READ = "#9b7ef2"; // 缓存读
 const COLOR_CACHE_WRITE = "#f2a94b"; // 缓存写
 const COLOR_OUTPUT = "#3ecf8e"; // 输出
 const COLOR_MARKER = "#e05252"; // 压缩标记
-
-function el(doc: Document, tag: string, className: string, text?: string): HTMLElement {
-  const node = doc.createElement(tag);
-  node.className = className;
-  if (text !== undefined) node.textContent = text;
-  return node;
-}
 
 /** token 数值格式化（轴刻度与 tooltip 通用）：千位缩写，避免宽轴溢出 */
 function fmtTokens(v: number): string {

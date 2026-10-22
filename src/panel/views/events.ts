@@ -7,6 +7,7 @@
  * 可滚动由 .zci-list 的 max-height + overflow-y 样式契约提供（panel.css）。
  */
 
+import { el } from "./dom.ts";
 /** get_session_events 的 structuredContent 形状 */
 export interface EventsPayload {
   available: boolean;
@@ -36,13 +37,6 @@ export interface FileActivityPayload {
     deletions: number | null;
     status: string | null;
   }> | null;
-}
-
-function el(doc: Document, tag: string, className: string, text?: string): HTMLElement {
-  const node = doc.createElement(tag);
-  node.className = className;
-  if (text !== undefined) node.textContent = text;
-  return node;
 }
 
 /** 事件时间显示（本地时区 HH:MM:SS；宿主时间戳为 Unix 毫秒） */

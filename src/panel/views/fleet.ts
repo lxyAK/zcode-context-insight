@@ -4,6 +4,7 @@
  * 节点卡片呈现该会话的 token / 请求耗时 / 状态（GLOSSARY「Fleet（代理网络）」口径）。
  */
 import { t } from "../i18n.ts";
+import { el } from "./dom.ts";
 
 /** Fleet 树节点（get_fleet_tree structuredContent.root 的形状） */
 export interface FleetNodePayload {
@@ -31,13 +32,6 @@ export interface FleetTreePayload {
   reason?: string;
   rootSessionSource?: "heartbeat" | "inferred" | "explicit" | null;
   root?: FleetNodePayload | null;
-}
-
-function el(doc: Document, tag: string, className: string, text?: string): HTMLElement {
-  const node = doc.createElement(tag);
-  node.className = className;
-  if (text !== undefined) node.textContent = text;
-  return node;
 }
 
 /** task_type → 节点类型标签（未知类型统一归"子会话"，schema 漂移容错） */

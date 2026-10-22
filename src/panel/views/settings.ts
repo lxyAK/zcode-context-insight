@@ -9,6 +9,7 @@
  */
 import { t, type MessageKey } from "../i18n.ts";
 import type { BridgeClient } from "../bridge.ts";
+import { el } from "./dom.ts";
 
 /** 设置三字段形状（与 server settings.ts 的 Settings 对应；面板侧宽松字符串即可） */
 export interface PanelSettings {
@@ -65,13 +66,6 @@ const FIELDS: Array<{
     ],
   },
 ];
-
-function el(doc: Document, tag: string, className: string, text?: string): HTMLElement {
-  const node = doc.createElement(tag);
-  node.className = className;
-  if (text !== undefined) node.textContent = text;
-  return node;
-}
 
 /**
  * 渲染设置卡片：三个 select + 状态行。
