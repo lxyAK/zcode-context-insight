@@ -1,0 +1,43 @@
+{
+  "name": "zcode-context-insight",
+  "version": "0.1.1",
+  "description": "ZCode 的上下文与 token 可视化插件：跨会话总览、会话内上下文仪表盘、代理网络与 /context 命令。",
+  "description_i18n": {
+    "zh-CN": "ZCode 的上下文与 token 可视化插件：跨会话总览、会话内上下文仪表盘、代理网络与 /context 命令。",
+    "en": "Context and token visualization for ZCode: cross-session Insights, in-session Context dashboard, agent Fleet and /context command."
+  },
+  "author": {
+    "name": "lxyAK"
+  },
+  "license": "Apache-2.0",
+  "mcpServers": {
+    "zci": {
+      "type": "stdio",
+      "command": "C:\\Program Files\\ZCode\\ZCode.exe",
+      "args": [
+        "C:\\Program Files\\ZCode\\resources\\glm\\zcode.cjs",
+        "__zcode-plugin-host",
+        "${ZCODE_PLUGIN_ROOT}/dist/server.mjs"
+      ],
+      "cwd": "${ZCODE_PROJECT_DIR}",
+      "env": {
+        "ELECTRON_RUN_AS_NODE": "1"
+      }
+    }
+  },
+  "ui": {
+    "surfaces": [
+      {
+        "id": "zci",
+        "title": {
+          "zh-CN": "上下文洞察",
+          "en-US": "Context Insight"
+        },
+        "icon": "activity",
+        "server": "zci",
+        "resourceUri": "ui://zcode-context-insight/panel.html",
+        "availability": "session"
+      }
+    ]
+  }
+}
