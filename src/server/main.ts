@@ -15,6 +15,7 @@ import { PLUGIN_NAME, PLUGIN_VERSION } from "./meta.ts";
 import type { ToolDefinition } from "./registry.ts";
 import { getOverviewTool } from "./tools/get_overview.ts";
 import { createCurrentSessionUsageTool } from "./tools/get_current_session_usage.ts";
+import { createCurrentSessionCompositionTool } from "./tools/get_current_session_composition.ts";
 import { createSessionStatsTool } from "./tools/get_session_stats.ts";
 import { createSessionEventsTool } from "./tools/get_session_events.ts";
 import { createSessionFileActivityTool } from "./tools/get_session_file_activity.ts";
@@ -24,6 +25,7 @@ import { registerPanelResource } from "./panel-resource.ts";
 const tools: ToolDefinition[] = [
   getOverviewTool,
   createCurrentSessionUsageTool(),
+  createCurrentSessionCompositionTool(),
   createSessionStatsTool(),
   createSessionEventsTool(),
   createSessionFileActivityTool(),
