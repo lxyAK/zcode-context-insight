@@ -46,6 +46,8 @@ export interface SanitizeResult {
 /**
  * 校验并回退未知字段：每个字段非合法枚举字符串时取默认值并记 warning。
  * 输入可以是任意 JSON 解析产物（损坏文件、旧版本、手改产物），绝不抛错。
+  * @param raw 待清洗的设置对象（任意 JSON 解析产物）
+ * @return 生效设置与回退警告（绝不抛错）
  */
 export function sanitizeSettings(raw: unknown): SanitizeResult {
   const warnings: string[] = [];
@@ -66,7 +68,11 @@ export function sanitizeSettings(raw: unknown): SanitizeResult {
   return { settings, warnings };
 }
 
-/** 读取并校验 settings.json；缺文件/损坏一律返回默认值（含 warnings） */
+/**
+ * 读取并校验 settings.json；缺文件/损坏一律返回默认值（含 warnings）
+ * @param path 设置文件路径
+ * @return 读取并校验的结果；缺文件/损坏一律返回默认值
+ */
 export function readSettings(path: string): SanitizeResult {
   if (!path) {
     return { settings: { ...DEFAULT_SETTINGS }, warnings: [] };
@@ -87,7 +93,12 @@ export function readSettings(path: string): SanitizeResult {
   }
 }
 
-/** 原子写 settings.json（tmp + rename，避免面板读到半截文件）；失败向上抛由调用方降级 */
+/**
+ * 原子写 settings.json（tmp + rename，避免面板读到半截文件）；失败向上抛由调用方降级
+ * @param path 设置文件路径
+ * @param settings 待写入的设置
+ * @return void（tmp + rename 原子写；失败向上抛）
+ */
 export function writeSettings(path: string, settings: Settings): void {
   const tmp = `${path}.tmp`;
   writeFileSync(tmp, JSON.stringify(settings, null, 2) + "\n", "utf8");

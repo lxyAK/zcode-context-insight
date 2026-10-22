@@ -15,6 +15,11 @@ export interface InsightsDeps {
   dbPath?: string;
 }
 
+/**
+ * 跨会话 Insights 总览工具工厂。
+ * @param deps 依赖注入（测试/调试；缺省从环境与宿主默认路径解析）
+ * @return 工具定义（main.ts 注册到 MCP server）
+ */
 export function createInsightsTool(deps: InsightsDeps = {}): ToolDefinition {
   return {
     name: "get_insights",

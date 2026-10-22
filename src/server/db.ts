@@ -20,6 +20,8 @@ const BUSY_TIMEOUT_MS = 2000;
 /**
  * 以只读 URI 打开 db.sqlite；文件缺失或打开失败返回 { ok:false }。
  * 注意：返回的连接仍由调用方负责 close（server 侧当前按查询开关，见 usage.ts）。
+  * @param dbPath 数据库文件路径
+ * @return 打开结果；成功携带连接（调用方负责 close），失败携带机器可读原因
  */
 export function openReadonlyDatabase(dbPath: string): DbOpenResult {
   if (!dbPath || !existsSync(dbPath)) {
@@ -52,6 +54,8 @@ export function openReadonlyDatabase(dbPath: string): DbOpenResult {
  *                           查询已用 json_valid 前置过滤，此处仅兜底）
  *  - "database is locked" → db-busy（宿主写事务持锁，busy_timeout 等待后仍冲突）
  *  - 其余                 → query-failed: <原始消息>（保留可诊断性）
+  * @param err 查询期捕获的异常
+ * @return 机器可读原因码（schema-drift:* / db-busy / query-failed:*）
  */
 export function classifyDbError(err: unknown): string {
   const msg = err instanceof Error ? err.message : String(err);

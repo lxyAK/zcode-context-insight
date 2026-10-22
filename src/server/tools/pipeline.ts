@@ -48,7 +48,12 @@ export function withReadonlyDb<T extends Record<string, unknown>>(
   }
 }
 
-/** 会话元数据块：识别来源标注（ADR-0003）+ session 表行字段（未落库为 null） */
+/**
+ * 会话元数据块：识别来源标注（ADR-0003）+ session 表行字段（未落库为 null）
+ * @param session 会话识别结果（含来源标注）
+ * @param row session 表元数据行（未落库为 null）
+ * @return 会话元数据块（识别来源 + 行字段，缺省 null）
+ */
 export function sessionMetaBlock(
   session: { id: string; source: "explicit" | "heartbeat" | "inferred"; heartbeatAt: number | null },
   row: SessionRow | null,

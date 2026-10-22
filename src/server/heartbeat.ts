@@ -11,7 +11,11 @@ export interface Heartbeat {
   time: number;
 }
 
-/** 读取并校验心跳文件；不可用（缺失/损坏/形状不符）时返回 null，绝不抛错 */
+/**
+ * 读取并校验心跳文件；不可用（缺失/损坏/形状不符）时返回 null，绝不抛错
+ * @param path 心跳文件路径
+ * @return 心跳内容；文件缺失或形状不符返回 null
+ */
 export function readHeartbeat(path: string): Heartbeat | null {
   if (!path) return null;
   let raw: string;

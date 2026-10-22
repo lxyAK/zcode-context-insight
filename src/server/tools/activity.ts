@@ -52,6 +52,11 @@ function windowStartMs(nowMs: number, days: number): number {
   return new Date(d.getFullYear(), d.getMonth(), d.getDate() - (days - 1)).getTime();
 }
 
+/**
+ * Insights 活跃数据工具工厂（热力图 + 模型/供应商用量占比）。
+ * @param deps 依赖注入（测试/调试；缺省从环境与宿主默认路径解析）
+ * @return 工具定义（main.ts 注册到 MCP server）
+ */
 export function createActivityTool(deps: ActivityDeps = {}): ToolDefinition {
   return {
     name: "get_activity_insights",

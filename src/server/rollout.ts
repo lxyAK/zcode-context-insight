@@ -65,7 +65,11 @@ export type RolloutReadResult =
 /** 已知 messagesKind 取值（tail 为实测补充，ADR-0002 未记录——见研究笔记 03 §7） */
 export const KNOWN_KINDS = ["full", "delta", "tail"] as const;
 
-/** 按已知 kind 分类计数；未知 kind 与缺省归 other */
+/**
+ * 按已知 kind 分类计数；未知 kind 与缺省归 other
+ * @param records 解析后的记录列表
+ * @return 各形态计数（未知 kind/缺省归 other）
+ */
 export function countByKind(records: RolloutRecord[]): {
   total: number;
   full: number;
@@ -86,6 +90,8 @@ export function countByKind(records: RolloutRecord[]): {
 /**
  * 组成估算锚点：最后一个 messagesKind=full 且带非零精确用量的记录。
  * delta/tail/未知 kind 一律不锚定（ADR-0002：非 full 不估算）。
+  * @param records 解析后的记录列表
+ * @return 最近的 full 且带非零用量的记录；无则 null
  */
 export function pickFullAnchor(records: RolloutRecord[]): RolloutRecord | null {
   let anchor: RolloutRecord | null = null;
@@ -95,7 +101,11 @@ export function pickFullAnchor(records: RolloutRecord[]): RolloutRecord | null {
   return anchor;
 }
 
-/** 最后一条带用量的记录的精确 input（纯 delta 会话的"只显示精确总量"来源） */
+/**
+ * 最后一条带用量的记录的精确 input（纯 delta 会话的"只显示精确总量"来源）
+ * @param records 解析后的记录列表
+ * @return 最后一条带用量记录的 inputTokens；无则 null
+ */
 export function pickLatestInputTokens(records: RolloutRecord[]): number | null {
   let value: number | null = null;
   for (const r of records) {
@@ -189,7 +199,11 @@ function parseLine(line: string): Omit<RolloutRecord, "index"> | null {
   };
 }
 
-/** 读取并逐行解析 rollout 文件（只读；坏行跳过并计数，零可解析行按 rollout-empty 降级） */
+/**
+ * 读取并逐行解析 rollout 文件（只读；坏行跳过并计数，零可解析行按 rollout-empty 降级）
+ * @param path rollout JSONL 文件路径
+ * @return 解析结果；失败携带机器可读原因（rollout-not-found 等）
+ */
 export function readRolloutFile(path: string): RolloutReadResult {
   let raw: string;
   try {

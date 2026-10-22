@@ -70,7 +70,12 @@ function safeParseJson(text: string): Record<string, unknown> | null {
   }
 }
 
-/** 查询会话事件流：压缩 + 模型切换，按时间升序合并返回 */
+/**
+ * 查询会话事件流：压缩 + 模型切换，按时间升序合并返回
+ * @param db 只读连接
+ * @param sessionId 目标会话 ID
+ * @return 按时间升序合并的事件列表
+ */
 export function listSessionEvents(db: DatabaseSync, sessionId: string): SessionEvent[] {
   const events: SessionEvent[] = [];
 
@@ -115,7 +120,12 @@ export function listSessionEvents(db: DatabaseSync, sessionId: string): SessionE
   return events;
 }
 
-/** 查询文件活动：Read/Write/Edit/Grep/Glob 工具调用记录，按时间升序返回 */
+/**
+ * 查询文件活动：Read/Write/Edit/Grep/Glob 工具调用记录，按时间升序返回
+ * @param db 只读连接
+ * @param sessionId 目标会话 ID
+ * @return 按时间升序的文件活动列表
+ */
 export function listSessionFileActivity(db: DatabaseSync, sessionId: string): FileActivityItem[] {
   // json_valid 前置过滤（T13）：data 非法 JSON 的行跳过，不毒化整查询
   const rows = db

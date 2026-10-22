@@ -40,6 +40,11 @@ export interface DataVersionWatcher {
 /** 默认防抖窗口：覆盖宿主单次写库的 WAL+主文件多点落盘，同时保证面板秒级感知 */
 const DEFAULT_DEBOUNCE_MS = 200;
 
+/**
+ * 创建 dataVersion watcher（fs.watch 感知 db/rollout 变更，防抖后递增版本）。
+ * @param opts 配置（监听路径/防抖窗口/轮询句柄注入，见 WatcherOptions）
+ * @return watcher 句柄（dataVersion 单调递增；stop() 清理监听）
+ */
 export function createDataVersionWatcher(opts: WatcherOptions): DataVersionWatcher {
   const debounceMs = opts.debounceMs ?? DEFAULT_DEBOUNCE_MS;
   let version = 1;

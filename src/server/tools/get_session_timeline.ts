@@ -15,6 +15,11 @@ import { sessionMetaBlock, withReadonlyDb, type SessionToolDeps } from "./pipeli
 /** 工具依赖（测试注入缝；缺省从环境与宿主默认路径解析） */
 export type SessionTimelineDeps = SessionToolDeps;
 
+/**
+ * 会话逐请求时间线工具工厂。
+ * @param deps 依赖注入（测试/调试；缺省从环境与宿主默认路径解析）
+ * @return 工具定义（main.ts 注册到 MCP server）
+ */
 export function createSessionTimelineTool(
   deps: SessionTimelineDeps = {},
 ): ToolDefinition {

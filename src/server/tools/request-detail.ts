@@ -306,7 +306,11 @@ function countKinds(lines: RolloutRecord[]): Record<string, number> {
   return counts;
 }
 
-/** 请求序列工具（Context Browser 的列表入口） */
+/**
+ * 请求序列工具（Context Browser 的列表入口）。
+ * @param deps 依赖注入（测试/调试；缺省从环境与宿主默认路径解析）
+ * @return 工具定义（main.ts 注册到 MCP server）
+ */
 export function createListSessionRequestsTool(deps: RequestDetailDeps = {}): ToolDefinition {
   return {
     name: "list_session_requests",
@@ -344,7 +348,11 @@ function collectRequestList(deps: RequestDetailDeps, input: { sessionId?: string
   };
 }
 
-/** 单请求组成明细工具（四分组的块级列表与三级估算；非 full 显示无快照空态） */
+/**
+ * 单请求组成明细工具（四分组的块级列表与三级估算；非 full 显示无快照空态）。
+ * @param deps 依赖注入（测试/调试；缺省从环境与宿主默认路径解析）
+ * @return 工具定义（main.ts 注册到 MCP server）
+ */
 export function createGetRequestDetailTool(deps: RequestDetailDeps = {}): ToolDefinition {
   return {
     name: "get_request_detail",

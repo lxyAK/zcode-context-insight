@@ -27,6 +27,8 @@ import type { RolloutMessage, RolloutRecord } from "./rollout.ts";
 /**
  * 字符级启发式折算：ceil(ASCII 字符数 / 4) + CJK 字符数 × 1。
  * 只是量级估计（最终以锚点归一化收束）；CJK 权重取 1 字符/token 偏保守。
+  * @param text 待折算的文本
+ * @return 估算 token 数（量级估计，非精确值）
  */
 export function estimateTextTokens(text: string): number {
   let ascii = 0;
@@ -89,6 +91,8 @@ function estimateToolsTokens(tools: unknown[]): number {
  *  - tools：body.tools 序列化折算；
  *  - 当前轮：最后一条 user 消息及其后的非 system 消息（当轮进行中的内容）；
  *  - 历史消息：此前全部非 system 消息。无 user 消息时全部归历史。
+  * @param record full 请求快照记录
+ * @return 四分组原始折算（未校准）
  */
 export function estimateRawComposition(record: RolloutRecord): CompositionGroups {
   const groups: CompositionGroups = { system: 0, tools: 0, history: 0, currentTurn: 0 };
@@ -128,6 +132,9 @@ export interface CalibrationResult {
  * 锚点校准（最大余数法）：calibrated[k] = floor(raw[k] × scale)，
  * 差值按小数部分从大到小逐个 +1 补齐（并列按 GROUP_ORDER 组序），保证总和恰等于锚点。
  * 调用方保证 anchorInputTokens > 0 且 rawTotal > 0。
+  * @param raw 四分组原始折算
+ * @param anchorInputTokens 锚点精确 inputTokens（须 >0）
+ * @return 校准后分组（Σ恰等于锚点）与比例因子
  */
 export function calibrateToAnchor(raw: CompositionGroups, anchorInputTokens: number): CalibrationResult {
   const scaleFactor = anchorInputTokens / GROUP_ORDER.reduce((sum, k) => sum + raw[k], 0);

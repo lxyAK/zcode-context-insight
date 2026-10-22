@@ -25,6 +25,11 @@ type ResolvedSession = {
   heartbeatAt: number | null;
 };
 
+/**
+ * 当前会话精确用量工具工厂。
+ * @param deps 依赖注入（测试/调试；缺省从环境与宿主默认路径解析）
+ * @return 工具定义（main.ts 注册到 MCP server）
+ */
 export function createCurrentSessionUsageTool(
   deps: CurrentSessionUsageDeps = {},
 ): ToolDefinition {

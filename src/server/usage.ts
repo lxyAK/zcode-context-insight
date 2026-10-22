@@ -44,6 +44,9 @@ export interface UsageAggregate {
 /**
  * 识别当前会话：心跳文件可用即精确返回；否则查询最近活跃 interactive 会话兜底
  * （task_type != interactive 的子代理/工作流会话排除，ADR 红线）。
+  * @param db 只读连接
+ * @param heartbeatPath 心跳文件路径
+ * @return 心跳命中为 heartbeat 精确识别，否则最近活跃 interactive 推断；无会话 null
  */
 export function resolveCurrentSession(db: DatabaseSync, heartbeatPath: string): CurrentSession | null {
   const heartbeat: Heartbeat | null = readHeartbeat(heartbeatPath);
@@ -57,6 +60,8 @@ export function resolveCurrentSession(db: DatabaseSync, heartbeatPath: string): 
  * 无心跳的兜底识别：最近活跃 interactive 会话（resolveCurrentSession 的推断分支，
  * 单独导出供心跳已先行判定的调用方复用——如 request-detail 的 T13 心跳优先语义、
  * composition 的显式/心跳前置识别；P1-8 会话识别归一）。
+  * @param db 只读连接
+ * @return 最近活跃 interactive 会话（inferred）；无则 null
  */
 export function resolveInferredSession(db: DatabaseSync): CurrentSession | null {
   const row = db
@@ -69,7 +74,12 @@ export function resolveInferredSession(db: DatabaseSync): CurrentSession | null 
   return row ? { id: row.id, source: "inferred", heartbeatAt: null } : null;
 }
 
-/** 取 session 元数据；会话未落库时返回 null */
+/**
+ * 取 session 元数据；会话未落库时返回 null
+ * @param db 只读连接
+ * @param sessionId 目标会话 ID
+ * @return 会话元数据行；会话未落库返回 null
+ */
 export function getSessionRow(db: DatabaseSync, sessionId: string): SessionRow | null {
   const row = db
     .prepare(
@@ -105,7 +115,12 @@ export interface TimelineRequestRow {
   contextExceeded: boolean;
 }
 
-/** 取指定会话的逐请求时间线（model_usage 按 started_at 升序，序号从 0 起） */
+/**
+ * 取指定会话的逐请求时间线（model_usage 按 started_at 升序，序号从 0 起）
+ * @param db 只读连接
+ * @param sessionId 目标会话 ID
+ * @return 按 started_at 升序的逐请求时间线（序号从 0 起）
+ */
 export function fetchRequestTimeline(db: DatabaseSync, sessionId: string): TimelineRequestRow[] {
   const rows = db
     .prepare(
@@ -159,7 +174,13 @@ export interface CompactionEvent {
   requestIndex: number | null;
 }
 
-/** 查询指定会话的压缩事件并关联请求序号（part 无函数索引，先按 session_id 过滤） */
+/**
+ * 查询指定会话的压缩事件并关联请求序号（part 无函数索引，先按 session_id 过滤）
+ * @param db 只读连接
+ * @param sessionId 目标会话 ID
+ * @param requests 已升序的时间线行（关联请求序号用；缺省跳过关联）
+ * @return 压缩事件列表（唯一解析点：双 post 口径/触发方式/序次键统一）
+ */
 export function fetchCompactionEvents(
   db: DatabaseSync,
   sessionId: string,
@@ -266,6 +287,9 @@ function percentileNearestRank(sorted: number[], p: number): number | null {
  *  - 缓存命中率 = cacheRead / input 合计（input_tokens 已含 cache_read，分母不另加）；
  *  - TTFT 分布取 time_to_first_token_ms 非空样本（失败请求无首 token，自然排除）；
  *  - 重试/超限计数取 SUM（NULL 行按 0 计）。
+  * @param db 只读连接
+ * @param sessionId 目标会话 ID
+ * @return 统计汇总（空样本的分位数/比率为 null 而非 0）
  */
 export function aggregateSessionStats(db: DatabaseSync, sessionId: string): SessionStats {
   const total = db
@@ -316,7 +340,12 @@ export function aggregateSessionStats(db: DatabaseSync, sessionId: string): Sess
   };
 }
 
-/** 聚合指定会话的请求级精确用量（SUM 对空集返回 NULL，统一落 0） */
+/**
+ * 聚合指定会话的请求级精确用量（SUM 对空集返回 NULL，统一落 0）
+ * @param db 只读连接
+ * @param sessionId 目标会话 ID
+ * @return 请求级精确用量聚合（含 byQuerySource 细分）
+ */
 export function aggregateSessionUsage(db: DatabaseSync, sessionId: string): UsageAggregate {
   const total = db
     .prepare(
@@ -370,6 +399,9 @@ export function aggregateSessionUsage(db: DatabaseSync, sessionId: string): Usag
  * 最近上下文占用近似（T11 压缩提醒启发式的分子）：
  * 最近一次 completed 的 main_turn 请求的 input_tokens（input 已含缓存读，近似最近
  * 一次发往模型的上下文窗口规模）。无样本返回 null。
+  * @param db 只读连接
+ * @param sessionId 目标会话 ID
+ * @return 最近一次 completed main_turn 的 input_tokens；无样本 null
  */
 export function getRecentContextTokens(db: DatabaseSync, sessionId: string): number | null {
   const row = db
@@ -387,6 +419,9 @@ export function getRecentContextTokens(db: DatabaseSync, sessionId: string): num
  * 最近一次压缩事件的 compactBoundary.preCompactTokenCount（宿主上次触发压缩时的上下文
  * 规模）。P0-5 起复用唯一解析点 fetchCompactionEvents（含 json_valid 行级容错）。
  * 无压缩历史或字段缺失/非正数返回 null——不猜阈值。
+  * @param db 只读连接
+ * @param sessionId 目标会话 ID
+ * @return 最近压缩事件的 preCompactTokenCount；无依据 null
  */
 export function getLatestCompactionThreshold(db: DatabaseSync, sessionId: string): number | null {
   const events = fetchCompactionEvents(db, sessionId);

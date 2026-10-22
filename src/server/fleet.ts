@@ -106,6 +106,9 @@ function collectUsageBySession(
 /**
  * 以 rootSessionId 为根构建 Fleet 父子树。
  * 根未落库时返回元数据 null 的单节点树（不抛错，消费方按降级呈现）。
+  * @param db 只读连接
+ * @param rootSessionId 根会话 ID
+ * @return 以该会话为根的 Fleet 树（节点含用量与状态聚合）
  */
 export function buildFleetTree(db: DatabaseSync, rootSessionId: string): FleetNode {
   // 全量 session 行（真实宿主千行以内）；time_deleted 软删除行不进树

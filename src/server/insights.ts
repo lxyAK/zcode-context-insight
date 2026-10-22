@@ -84,7 +84,13 @@ function dayIndexToDate(index: number): string {
   return new Date(index * DAY_MS).toISOString().slice(0, 10);
 }
 
-/** 查询全部聚合（打开的只读连接；任何异常由工具层 catch 降级） */
+/**
+ * 查询全部聚合（打开的只读连接；任何异常由工具层 catch 降级）
+ * @param db 只读连接
+ * @param filter 会话列表筛选条件（不影响全局 KPI/趋势）
+ * @param trendDays 趋势窗口天数（默认 7）
+ * @return Insights 载荷（KPI/日趋势/项目清单/会话列表）
+ */
 export function collectInsights(
   db: DatabaseSync,
   filter: Partial<SessionFilter>,
