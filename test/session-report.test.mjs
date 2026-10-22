@@ -16,6 +16,7 @@ import { fileURLToPath } from "node:url";
 const repoRoot = dirname(dirname(fileURLToPath(import.meta.url)));
 const fixtureDb = join(repoRoot, "test", "fixtures", "db.sqlite");
 const fixtureHeartbeat = join(repoRoot, "test", "fixtures", "heartbeat.json");
+const fixtureRolloutDir = join(repoRoot, "test", "fixtures", "rollout");
 
 // 夹具会话 ID（与 scripts/make-fixtures.mjs 保持同源常量）
 const S_MAIN = "session_00000000000000000000000000000001"; // 心跳指向；带压缩历史（阈值 1800）
@@ -63,17 +64,45 @@ describe("get_current_session_report（功能缝：直调 execute）", () => {
     }
   });
 
-  it("组成兜底呈现：估算源（T3）未接入时 estimated=false，四分组留空，总量以 API 精确值兜底", async () => {
-    const payload = await callTool({ dbPath: fixtureDb, heartbeatPath: fixtureHeartbeat });
+  it("组成估算（T3 已合入）：S_MAIN 有 rollout 夹具 → estimated=true，四分组为锚点校准手算值（标注估算）", async () => {
+    const payload = await callTool({
+      dbPath: fixtureDb,
+      heartbeatPath: fixtureHeartbeat,
+      rolloutDir: fixtureRolloutDir,
+    });
+    const c = payload.composition;
 
-    // 结构缝：组成字段始终存在；T3 接入后 estimated=true 且 groups 填四分组（估算值）
-    expect(payload.composition).toBeTruthy();
-    expect(payload.composition.estimated).toBe(false);
-    expect(payload.composition.basis).toBe("exact-usage-fallback");
-    expect(payload.composition.groups).toBeNull();
-    expect(payload.composition.exactTotalTokens).toBe(4405); // 与 usage.computedTotalTokens 同源（API 精确值）
-    expect(payload.composition.note).toContain("估算");
-    expect(payload.composition.note).toContain("兜底");
+    // 手算真值来源：make-fixtures.mjs buildMainRolloutLines 注释（T3 锚点 req-main-3）：
+    // Σraw=500，锚点 usage.inputTokens=625 → scale=1.25，
+    // 校准后 { system:151, tools:124, history:213, currentTurn:137 }，Σ=625
+    expect(c.estimated).toBe(true);
+    expect(c.basis).toBe("rollout-full-request");
+    expect(c.exactTotalTokens).toBe(625);
+    expect(c.groups).toEqual({ system: 151, tools: 124, history: 213, currentTurn: 137 });
+    expect(c.scaleFactor).toBe(1.25);
+    expect(c.note).toContain("估算"); // ADR-0002：展示必须标注估算
+  });
+
+  it("组成兜底呈现：S_NEAR 无 rollout 文件 → estimated=false，四分组留空，总量以 API 精确值兜底", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "zci-report-"));
+    try {
+      const hb = writeHeartbeat(dir, { sessionId: S_NEAR, time: 1792600090000 });
+      const payload = await callTool({
+        dbPath: fixtureDb,
+        heartbeatPath: hb,
+        rolloutDir: fixtureRolloutDir,
+      });
+      const c = payload.composition;
+
+      expect(c.estimated).toBe(false);
+      expect(c.basis).toBe("exact-usage-fallback");
+      expect(c.groups).toBeNull();
+      expect(c.exactTotalTokens).toBe(1000); // S_NEAR mu_near_1 computedTotalTokens（手算）
+      expect(c.note).toContain("估算");
+      expect(c.note).toContain("兜底");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 
   describe("接近压缩提醒（启发式，口径在返回中声明）", () => {
@@ -98,16 +127,18 @@ describe("get_current_session_report（功能缝：直调 execute）", () => {
       }
     });
 
-    it("S_MAIN：最近占用 90 ÷ 阈值 1800 = 0.05 → 有依据但未达阈值，present=false 且 ratio 透出", async () => {
+    it("S_MAIN：最近占用 90 ÷ 阈值 4000（T7 手动压缩 part，最新）= 0.0225 → present=false 且 ratio 透出", async () => {
       const payload = await callTool({ dbPath: fixtureDb, heartbeatPath: fixtureHeartbeat });
       const w = payload.compactionWarning;
 
-      // 手算：mu_main_6（最近 completed main_turn，mu_main_5 为 error 行须排除）input=90 ÷ 1800
+      // 手算：mu_main_6（最近 completed main_turn，mu_main_5 为 error 行须排除）input=90；
+      // S_MAIN 最近压缩事件 = part_t7_compact_2（T0+58000，晚于 part_fixture_compact_1 的
+      // T0+55000）preCompactTokenCount=4000 → 90/4000 = 0.0225
       expect(w).toBeTruthy();
       expect(w.present).toBe(false);
-      expect(w.ratio).toBe(0.05);
+      expect(w.ratio).toBe(0.0225);
       expect(w.currentContextTokens).toBe(90);
-      expect(w.thresholdTokens).toBe(1800);
+      expect(w.thresholdTokens).toBe(4000);
     });
 
     it("S_OLD：无压缩历史即无阈值依据 → 整个提醒字段省略（null）", async () => {

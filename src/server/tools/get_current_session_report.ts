@@ -11,16 +11,20 @@
  * 会话识别复用 resolveCurrentSession（ADR-0003：心跳优先，无心跳兜底最近活跃
  * interactive 会话并标注推断）。依赖注入缝与降级语义同 get_current_session_usage。
  */
+import { join } from "node:path";
 import { z } from "zod";
 import type { ToolDefinition } from "../registry.ts";
-import { resolveDbPath, resolveHeartbeatPath } from "../paths.ts";
+import { resolveDbPath, resolveHeartbeatPath, resolveRolloutDir } from "../paths.ts";
 import { openReadonlyDatabase } from "../db.ts";
 import { aggregateSessionUsage, getSessionRow, getLatestCompactionThreshold, getRecentContextTokens, resolveCurrentSession } from "../usage.ts";
+import { pickFullAnchor, readRolloutFile } from "../rollout.ts";
+import { calibrateToAnchor, estimateRawComposition, GROUP_ORDER } from "../composition.ts";
 
 /** 工具依赖（测试注入缝；缺省从环境与宿主默认路径解析） */
 export interface CurrentSessionReportDeps {
   dbPath?: string;
   heartbeatPath?: string;
+  rolloutDir?: string;
 }
 
 export function createCurrentSessionReportTool(
@@ -78,6 +82,48 @@ function assessCompaction(
   };
 }
 
+/**
+ * 组成估算接入（T3）：优先以 rollout 最近 full 请求为锚点做四分组估算（ADR-0002：
+ * 必须标注估算，非 full 不锚定）；rollout 缺失/无 full 锚点/空内容时以 db API 精确
+ * 总量兜底呈现（estimated=false，groups 留空，不冒充分组）。
+ */
+function buildComposition(
+  deps: CurrentSessionReportDeps,
+  sessionId: string,
+  dbTotalTokens: number,
+): Record<string, unknown> {
+  const rolloutDir = deps.rolloutDir ?? resolveRolloutDir();
+  const rolloutResult = readRolloutFile(join(rolloutDir, `model-io-${sessionId}.jsonl`));
+  if (rolloutResult.ok) {
+    const anchor = pickFullAnchor(rolloutResult.records);
+    if (anchor) {
+      const raw = estimateRawComposition(anchor);
+      const rawTotal = GROUP_ORDER.reduce((sum, k) => sum + raw[k], 0);
+      if (rawTotal > 0) {
+        const { calibrated, scaleFactor } = calibrateToAnchor(raw, anchor.usage!.inputTokens);
+        return {
+          estimated: true,
+          basis: "rollout-full-request",
+          exactTotalTokens: anchor.usage!.inputTokens,
+          groups: calibrated,
+          scaleFactor,
+          note:
+            "组成估算：基于该会话最近 full 请求快照按内容特征折算并锚点校准" +
+            "（四分组：system 提示 / 工具定义 / 历史消息 / 当前轮，均为估算值）；" +
+            "总量为锚点请求的 API 精确 inputTokens，不与估算值互冒充",
+        };
+      }
+    }
+  }
+  return {
+    estimated: false,
+    basis: "exact-usage-fallback",
+    exactTotalTokens: dbTotalTokens,
+    groups: null,
+    note: "组成估算暂不可用（rollout 缺失或无 full 请求锚点），以下为 API 精确总量兜底，不含分组",
+  };
+}
+
 /** 采集逻辑（同步；任何失败降级为 available=false，不炸面板） */
 function collectCurrentSessionReport(deps: CurrentSessionReportDeps): Record<string, unknown> {
   const dbPath = deps.dbPath ?? resolveDbPath();
@@ -94,15 +140,7 @@ function collectCurrentSessionReport(deps: CurrentSessionReportDeps): Record<str
     }
     const row = getSessionRow(opened.db, current.id);
     const usage = aggregateSessionUsage(opened.db, current.id);
-    // 组成估算（T3 rollout 四分组估算）未接入：以 API 精确总量兜底呈现，结构缝保留
-    // groups 字段待接（接入后 estimated=true 并填 system 提示/工具定义/历史消息/当前轮）。
-    const composition = {
-      estimated: false,
-      basis: "exact-usage-fallback",
-      exactTotalTokens: usage.computedTotalTokens,
-      groups: null,
-      note: "组成估算暂不可用（待 rollout 组成估算接入），以下为 API 精确总量兜底，不含分组",
-    };
+    const composition = buildComposition(deps, current.id, usage.computedTotalTokens);
     return {
       available: true,
       session: {
