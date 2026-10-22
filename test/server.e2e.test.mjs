@@ -145,6 +145,25 @@ describe("MCP server（stdio e2e）", () => {
     expect(tool._meta?.ui?.visibility).toEqual(["model", "app"]);
   });
 
+  it("tools/list 含 get_current_session_report（/context 后端），model 可见（验收项 3 前置）", async () => {
+    const result = await server.request("tools/list", {});
+    const tool = result.tools.find((t) => t.name === "get_current_session_report");
+    expect(tool, `工具列表: ${JSON.stringify(result.tools.map((t) => t.name))}`).toBeTruthy();
+    expect(tool.description).toBeTruthy();
+    // model 必须在可见列表（命令正文指示模型调用本工具）
+    expect(tool._meta?.ui?.visibility).toContain("model");
+    expect(tool._meta?.ui?.visibility).toContain("app");
+  });
+
+  it("新增工具不改动既有工具的可见性标记（验收项 4）", async () => {
+    const result = await server.request("tools/list", {});
+    const byName = Object.fromEntries(result.tools.map((t) => [t.name, t._meta?.ui?.visibility]));
+    expect(byName.get_overview).toContain("app");   // 面板连通性探针
+    expect(byName.get_overview).toContain("model");
+    expect(byName.get_current_session_usage).toEqual(["model", "app"]);
+    expect(byName.get_session_stats).toEqual(["model", "app"]);
+  });
+
   it("tools/call get_session_stats（db 缺失时）降级 available=false，不报错", async () => {
     const result = await server.request("tools/call", {
       name: "get_session_stats",

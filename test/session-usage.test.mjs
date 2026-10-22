@@ -19,6 +19,7 @@ const fixtureHeartbeat = join(repoRoot, "test", "fixtures", "heartbeat.json");
 // 夹具会话 ID（与 scripts/make-fixtures.mjs 保持同源常量）
 const S_MAIN = "session_00000000000000000000000000000001";
 const S_OLD = "session_00000000000000000000000000000002";
+const S_NEAR = "session_00000000000000000000000000000004"; // time_updated 全场最新的 interactive（T11）
 
 // S_MAIN 的 model_usage 手算聚合（全请求 6 行；行集见 make-fixtures.mjs 注释，
 // T5 追加了 mu_main_4 重试 / mu_main_5 超限 error(ttft NULL) / mu_main_6 三行）
@@ -105,11 +106,12 @@ describe("get_current_session_usage（功能缝：直调 execute）", () => {
       const payload = await callTool({ dbPath: fixtureDb, heartbeatPath: join(dir, "absent.json") });
 
       expect(payload.available).toBe(true);
-      // 夹具中 subagent 会话 time_updated 比 S_OLD 新，兜底必须按 task_type='interactive' 过滤
-      expect(payload.session.id).toBe(S_MAIN);
+      // 夹具中 subagent（T0+50000）与 S_MAIN（T0+60000）均早于 S_NEAR（T0+90000），
+      // 兜底必须按 task_type='interactive' 过滤且取 time_updated 最新 → S_NEAR
+      expect(payload.session.id).toBe(S_NEAR);
       expect(payload.session.source).toBe("inferred");
       expect(payload.session.heartbeatAt).toBeNull();
-      expect(payload.usage.requests).toBe(6); // S_MAIN 的聚合
+      expect(payload.usage.requests).toBe(1); // S_NEAR 的聚合
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
@@ -123,7 +125,7 @@ describe("get_current_session_usage（功能缝：直调 execute）", () => {
       const payload = await callTool({ dbPath: fixtureDb, heartbeatPath: hb });
 
       expect(payload.session.source).toBe("inferred");
-      expect(payload.session.id).toBe(S_MAIN);
+      expect(payload.session.id).toBe(S_NEAR); // 同上：兜底取最近活跃 S_NEAR
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }

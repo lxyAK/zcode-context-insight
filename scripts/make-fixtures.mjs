@@ -104,9 +104,10 @@ const DDL = [
 ];
 
 /** 会话 ID（对照真实形态：主会话 session_<32hex>，子代理 sess_subagent_agent_<uuid>） */
-const S_MAIN = "session_00000000000000000000000000000001"; // interactive，time_updated 最新 → 兜底应选中
+const S_MAIN = "session_00000000000000000000000000000001"; // interactive，心跳夹具指向的会话
 const S_OLD = "session_00000000000000000000000000000002"; // interactive，较旧
 const S_SUB = "sess_subagent_agent_00000000-0000-4000-8000-000000000003"; // subagent_child，time_updated 比 S_OLD 新 → 验证兜底必须过滤 task_type
+const S_NEAR = "session_00000000000000000000000000000004"; // interactive，time_updated 全场最新（T11）→ 无心跳兜底应选中；与心跳指向的 S_MAIN 错开，使"心跳会话 vs 推断会话"在夹具中可区分；带压缩历史且最近占用达阈值 90%（T11 接近压缩提醒场景）
 
 function insertSessions(db) {
   const stmt = db.prepare(
@@ -119,6 +120,7 @@ function insertSessions(db) {
   stmt.run(S_MAIN, proj, null, S_MAIN, dir, "夹具主会话（当前）", "3.16.2", T0, T0 + 60000, "interactive");
   stmt.run(S_OLD, proj, null, S_OLD, dir, "夹具旧会话", "3.16.2", T0, T0 + 30000, "interactive");
   stmt.run(S_SUB, proj, S_MAIN, S_SUB, dir, "夹具子代理会话", "3.16.2", T0, T0 + 50000, "subagent_child");
+  stmt.run(S_NEAR, proj, null, S_NEAR, dir, "夹具接近压缩会话", "3.16.2", T0 + 80000, T0 + 90000, "interactive");
 }
 
 /**
@@ -174,6 +176,12 @@ function insertModelUsage(db) {
   // S_SUB（子代理）：一行，验证聚合按 session_id 隔离
   row("mu_sub_1", S_SUB, "turn_fixture_sub", "subagent", "subagent_child",
     T0 + 40000, 4000, 900, 2000, 300, 0, 0, 1500, 2300);
+  // S_NEAR（T11）：一行 completed main_turn；最近上下文占用近似 = input 900（含缓存读 700），
+  // 压缩阈值依据 preCompactTokenCount=1000（下方 part 行）→ 占用率 0.9 ≥ 0.8，触发接近压缩提醒。
+  // S_NEAR 期望聚合：requests=1, input=900, output=100, reasoning=0,
+  //   cacheRead=700, cacheWrite=0, computedTotal=1000, ttft=700。
+  row("mu_near_1", S_NEAR, "turn_fixture_near", "main_turn", "interactive",
+    T0 + 85000, 1500, 700, 900, 100, 0, 0, 700, 1000);
 }
 
 function insertTurnUsage(db) {
@@ -206,6 +214,28 @@ function insertMessageAndPart(db) {
         postCompactTokenCount: 300,
         truePostCompactTokenCount: 300,
         summarizedMessageCount: 2,
+        keptMessageCount: 1,
+      },
+    }), 2);
+  // S_NEAR（T11）的压缩历史：preCompactTokenCount=1000 是该会话的实测压缩阈值代理
+  db.prepare(
+    `INSERT INTO message (id, session_id, time_created, time_updated, data, sequence)
+     VALUES (?, ?, ?, ?, ?, ?)`,
+  ).run("msg_fixture_near", S_NEAR, T0 + 82000, T0 + 82000,
+    JSON.stringify({ role: "user", time: T0 + 82000 }), 1);
+  db.prepare(
+    `INSERT INTO part (id, message_id, session_id, time_created, time_updated, data, sequence)
+     VALUES (?, ?, ?, ?, ?, ?, ?)`,
+  ).run("part_fixture_compact_near", "msg_fixture_near", S_NEAR, T0 + 86000, T0 + 86000,
+    JSON.stringify({
+      type: "compaction",
+      auto: true,
+      compactBoundary: {
+        boundaryId: "cb_fixture_near",
+        preCompactTokenCount: 1000,
+        postCompactTokenCount: 200,
+        truePostCompactTokenCount: 200,
+        summarizedMessageCount: 3,
         keptMessageCount: 1,
       },
     }), 2);
