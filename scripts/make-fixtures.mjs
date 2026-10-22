@@ -110,7 +110,8 @@ const DDL = [
 const S_MAIN = "session_00000000000000000000000000000001"; // interactive，心跳夹具指向的会话
 const S_OLD = "session_00000000000000000000000000000002"; // interactive，较旧
 const S_SUB = "sess_subagent_agent_00000000-0000-4000-8000-000000000003"; // subagent_child，time_updated 比 S_OLD 新 → 验证兜底必须过滤 task_type
-const S_NEAR = "session_00000000000000000000000000000004"; // interactive，time_updated 全场最新（T11）→ 无心跳兜底应选中；与心跳指向的 S_MAIN 错开，使"心跳会话 vs 推断会话"在夹具中可区分；带压缩历史且最近占用达阈值 90%（T11 接近压缩提醒场景）
+const S_NEAR = "session_00000000000000000000000000000005"; // interactive，time_updated 全场最新（T11）→ 无心跳兜底应选中；与心跳指向的 S_MAIN 错开，使"心跳会话 vs 推断会话"在夹具中可区分；带压缩历史且最近占用达阈值 90%（T11 接近压缩提醒场景；ID 与 T9 的 S_MULTI 错开）
+const S_MULTI = "session_00000000000000000000000000000004"; // interactive，T9 活跃数据行集：跨三个日历日、两个模型/供应商
 
 function insertSessions(db) {
   const stmt = db.prepare(
@@ -124,6 +125,8 @@ function insertSessions(db) {
   stmt.run(S_OLD, proj, null, S_OLD, dir, "夹具旧会话", "3.16.2", T0, T0 + 30000, "interactive");
   stmt.run(S_SUB, proj, S_MAIN, S_SUB, dir, "夹具子代理会话", "3.16.2", T0, T0 + 50000, "subagent_child");
   stmt.run(S_NEAR, proj, null, S_NEAR, dir, "夹具接近压缩会话", "3.16.2", T0 + 80000, T0 + 90000, "interactive");
+  // time_updated（T0+30000）早于 S_MAIN（T0+60000）：不破坏 T2 兜底选中 S_MAIN 的断言
+  stmt.run(S_MULTI, proj, null, S_MULTI, dir, "夹具跨日会话（T9）", "3.16.2", T0 - 2 * 86400000, T0 + 30000, "interactive");
 }
 
 /**
@@ -185,6 +188,34 @@ function insertModelUsage(db) {
   //   cacheRead=700, cacheWrite=0, computedTotal=1000, ttft=700。
   row("mu_near_1", S_NEAR, "turn_fixture_near", "main_turn", "interactive",
     T0 + 85000, 1500, 700, 900, 100, 0, 0, 700, 1000);
+}
+
+/**
+ * T9 活跃数据行集（全部挂 S_MULTI，不影响 T2 对 S_MAIN/S_OLD/S_SUB 的聚合断言）：
+ *   mu_act_a：D0（T0 当日）  GLM-5.3 / account:fixture     main_turn 700
+ *   mu_act_b：D0-1（前一日） GLM-4.7 / account:fixture-alt main_turn 300
+ *   mu_act_c：D0-2（前两日） GLM-5.3 / account:fixture     main_turn 500
+ *   mu_act_d：D0-2           GLM-4.7 / account:fixture-alt session_title 50（工具应按口径排除）
+ * 按 91 天窗口、排除 session_title 后的手算期望见 test/activity-insights.test.mjs 注释。
+ */
+function insertActivityRows(db) {
+  const stmt = db.prepare(
+    `INSERT INTO model_usage (id, logical_request_id, session_id, turn_id, query_source,
+       provider_id, model_id, task_type, status,
+       started_at, completed_at, duration_ms, time_to_first_token_ms,
+       input_tokens, output_tokens, reasoning_tokens,
+       cache_creation_input_tokens, cache_read_input_tokens, computed_total_tokens)
+     VALUES (?, ?, ?, ?, ?, ?, ?, 'interactive', 'completed',
+       ?, ?, ?, ?, ?, ?, ?, 0, 0, ?)`,
+  );
+  const row = (id, source, provider, model, startedAt, dur, ttft, inp, out, total) =>
+    stmt.run(id, `lrq_${id}`, S_MULTI, "turn_fixture_act", source, provider, model,
+      startedAt, startedAt + dur, dur, ttft, inp, out, 0, total);
+
+  row("mu_act_a", "main_turn", "account:fixture", "GLM-5.3", T0 + 30000, 1000, 500, 600, 100, 700);
+  row("mu_act_b", "main_turn", "account:fixture-alt", "GLM-4.7", T0 - 86400000 + 3600000, 800, 400, 250, 50, 300);
+  row("mu_act_c", "main_turn", "account:fixture", "GLM-5.3", T0 - 2 * 86400000 + 7200000, 1200, 600, 400, 100, 500);
+  row("mu_act_d", "session_title", "account:fixture-alt", "GLM-4.7", T0 - 2 * 86400000 + 7800000, 300, 150, 40, 10, 50);
 }
 
 function insertTurnUsage(db) {
@@ -538,6 +569,7 @@ db.exec("BEGIN");
 for (const ddl of DDL) db.exec(ddl);
 insertSessions(db);
 insertModelUsage(db);
+insertActivityRows(db);
 insertTurnUsage(db);
 insertMessageAndPart(db);
 insertT7Parts(db);

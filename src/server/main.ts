@@ -20,6 +20,7 @@ import { createSessionStatsTool } from "./tools/get_session_stats.ts";
 import { createCurrentSessionReportTool } from "./tools/get_current_session_report.ts";
 import { createSessionEventsTool } from "./tools/get_session_events.ts";
 import { createSessionFileActivityTool } from "./tools/get_session_file_activity.ts";
+import { createActivityTool } from "./tools/activity.ts";
 import { registerPanelResource } from "./panel-resource.ts";
 
 /** 工具注册表：新工具在此追加（扩展缝） */
@@ -31,6 +32,7 @@ const tools: ToolDefinition[] = [
   createCurrentSessionReportTool(),
   createSessionEventsTool(),
   createSessionFileActivityTool(),
+  createActivityTool(),
 ];
 
 function registerTools(server: McpServer, defs: ToolDefinition[]): void {
