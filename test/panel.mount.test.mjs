@@ -461,6 +461,30 @@ describe("Insights 页（KPI 带 / 7 天趋势 / 会话卡片）", () => {
     expect(root.textContent).toContain("夹具项目A大会话");
     expect(norm(root.textContent)).toContain("50000");
     expect(root.textContent).toContain(S_DAY1);
+
+    // review 修复（P0-3）：跳转后 Context 页全部会话级工具显式携带目标 sessionId
+    // （source=explicit），不再只渲染横幅；等待最后一个发出的 list_session_requests
+    await waitFor(() =>
+      host.received.some((m) => m.method === "tools/call" && m.params?.name === "list_session_requests"),
+    );
+    const sessionScoped = [
+      "get_current_session_usage",
+      "get_session_timeline",
+      "get_current_session_composition",
+      "get_session_stats",
+      "get_session_events",
+      "get_session_file_activity",
+      "list_session_requests",
+    ];
+    const callsWithTarget = host.received.filter(
+      (m) => m.method === "tools/call" && sessionScoped.includes(m.params?.name)
+        && m.params.arguments?.sessionId === S_DAY1,
+    );
+    expect(new Set(callsWithTarget.map((m) => m.params.name))).toEqual(new Set(sessionScoped));
+
+    // get_overview（插件元信息）不携带会话参数
+    const overviewCall = host.received.find((m) => m.method === "tools/call" && m.params?.name === "get_overview");
+    expect(overviewCall.params.arguments.sessionId).toBeUndefined();
   });
 });
 

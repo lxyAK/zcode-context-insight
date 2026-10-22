@@ -19,10 +19,10 @@ const fixtureHeartbeat = join(repoRoot, "test", "fixtures", "heartbeat.json");
 // 夹具会话 ID（与 scripts/make-fixtures.mjs 保持同源常量）
 const S_MAIN = "session_00000000000000000000000000000001";
 
-async function callTool(deps) {
+async function callTool(deps, args = {}) {
   const { createSessionStatsTool } = await import("../src/server/tools/get_session_stats.ts");
   const tool = createSessionStatsTool(deps);
-  const result = await tool.execute({});
+  const result = await tool.execute(args);
   return result.structuredContent;
 }
 
@@ -103,5 +103,30 @@ describe("get_session_stats（功能缝：直调 execute）", () => {
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
+  });
+
+  // review 修复（P0-3 Context 页 sessionId 接线）：显式 sessionId 优先于心跳，
+  // 统计按指定会话计算（source=explicit）。S_OLD 单行 mu_old_1 手算：
+  // inp=300 / out=50 / cacheR=250 / cacheW=0 / total=350 / ttft=800 /
+  // 命中率 250÷300≈0.833 / 单样本 p50=p95=800
+  it("显式 sessionId：source=explicit 且统计按指定会话（S_OLD 单行）", async () => {
+    const payload = await callTool(
+      { dbPath: fixtureDb, heartbeatPath: fixtureHeartbeat }, // 心跳指向 S_MAIN，显式传参应胜出
+      { sessionId: "session_00000000000000000000000000000002" },
+    );
+
+    expect(payload.available).toBe(true);
+    expect(payload.session.id).toBe("session_00000000000000000000000000000002");
+    expect(payload.session.source).toBe("explicit");
+    expect(payload.session.heartbeatAt).toBeNull();
+    expect(payload.stats.requests).toBe(1);
+    expect(payload.stats.computedTotalTokens).toBe(350);
+    expect(payload.stats.inputTokens).toBe(300);
+    expect(payload.stats.cacheReadTokens).toBe(250);
+    expect(payload.stats.cacheHitRate).toBeCloseTo(0.8333, 3);
+    expect(payload.stats.ttftCount).toBe(1);
+    expect(payload.stats.ttftP50Ms).toBe(800);
+    expect(payload.stats.ttftP95Ms).toBe(800);
+    expect(payload.stats.retryCount).toBe(0);
   });
 });

@@ -45,10 +45,10 @@ function writeHeartbeat(dir, obj) {
   return p;
 }
 
-async function callTool(deps) {
+async function callTool(deps, args = {}) {
   const { createCurrentSessionUsageTool } = await import("../src/server/tools/get_current_session_usage.ts");
   const tool = createCurrentSessionUsageTool(deps);
-  const result = await tool.execute({});
+  const result = await tool.execute(args);
   return result.structuredContent;
 }
 
@@ -81,6 +81,24 @@ describe("get_current_session_usage（功能缝：直调 execute）", () => {
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
+  });
+
+  // review 修复（P0-3 Context 页 sessionId 接线）：Insights 卡片跳转后面板显式传
+  // sessionId，工具按指定会话查询（source=explicit），优先级高于心跳
+  it("显式 sessionId：source=explicit 且优先于心跳，聚合按指定会话隔离（S_OLD 单行）", async () => {
+    const payload = await callTool(
+      { dbPath: fixtureDb, heartbeatPath: fixtureHeartbeat }, // 心跳指向 S_MAIN，显式传参应胜出
+      { sessionId: S_OLD },
+    );
+
+    expect(payload.available).toBe(true);
+    expect(payload.session.id).toBe(S_OLD);
+    expect(payload.session.source).toBe("explicit");
+    expect(payload.session.heartbeatAt).toBeNull();
+    expect(payload.usage.requests).toBe(1);
+    expect(payload.usage.computedTotalTokens).toBe(350);
+    expect(payload.usage.inputTokens).toBe(300);
+    expect(payload.usage.outputTokens).toBe(50);
   });
 
   it("心跳指向未落库的新会话：仍按 heartbeat 返回，用量全 0 而非报错", async () => {

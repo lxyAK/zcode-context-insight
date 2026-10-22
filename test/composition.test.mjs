@@ -130,12 +130,12 @@ const MAIN_ANCHOR_INPUT = 625;
 const MAIN_SCALE = 1.25;
 const MAIN_CALIBRATED = { system: 151, tools: 124, history: 213, currentTurn: 137 };
 
-async function callCompositionTool(deps) {
+async function callCompositionTool(deps, args = {}) {
   const { createCurrentSessionCompositionTool } = await import(
     "../src/server/tools/get_current_session_composition.ts"
   );
   const tool = createCurrentSessionCompositionTool(deps);
-  const result = await tool.execute({});
+  const result = await tool.execute(args);
   return result.structuredContent;
 }
 
@@ -214,6 +214,26 @@ describe("get_current_session_composition（功能缝：直调 execute）", () =
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
+  });
+
+  // review 修复（P0-3 Context 页 sessionId 接线）：显式 sessionId 优先于心跳识别，
+  // 组成按指定会话的 rollout 计算（source=explicit）；无心跳路径下同样可用
+  it("显式 sessionId：source=explicit，组成按指定会话的 rollout（S_MAIN 锚点）", async () => {
+    const payload = await callCompositionTool(
+      {
+        dbPath: fixtureDb,
+        heartbeatPath: join(tmpdir(), "absent-heartbeat.json"), // 无心跳：不依赖识别兜底
+        rolloutDir: fixtureRolloutDir,
+      },
+      { sessionId: S_MAIN },
+    );
+
+    expect(payload.available).toBe(true);
+    expect(payload.session.id).toBe(S_MAIN);
+    expect(payload.session.source).toBe("explicit");
+    expect(payload.anchor.requestId).toBe("req-main-3");
+    expect(payload.exactTotalTokens).toBe(MAIN_ANCHOR_INPUT);
+    expect(payload.composition.calibrated).toEqual(MAIN_CALIBRATED);
   });
 
   it("rollout 文件缺失（宿主清理，ADR-0001 预期）：available=false 降级不抛错", async () => {

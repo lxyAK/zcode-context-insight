@@ -58,6 +58,12 @@ export const contextPage: PageDefinition = {
       container.append(renderSelectedSessionBanner(doc, ctx.params));
     }
 
+    // sessionId 接线（review 修复 P0-3）：跳转携带目标会话时，本页全部会话级工具
+    // 显式传参（工具侧 source=explicit），各区块按该会话而非当前会话查询
+    const sessionArgs: Record<string, unknown> =
+      typeof ctx.params.sessionId === "string" ? { sessionId: ctx.params.sessionId } : {};
+    const targetSessionId = typeof ctx.params.sessionId === "string" ? ctx.params.sessionId : undefined;
+
     // 概览区（get_overview）：失败渲染错误，不阻断后续区块
     const overview = await ctx.callTool("get_overview");
     container.append(
@@ -67,7 +73,7 @@ export const contextPage: PageDefinition = {
     );
 
     // 当前会话精确用量区（get_current_session_usage）：独立降级
-    const usageResult = await ctx.callTool("get_current_session_usage");
+    const usageResult = await ctx.callTool("get_current_session_usage", sessionArgs);
     container.append(
       renderUsageSection(
         doc,
@@ -78,7 +84,7 @@ export const contextPage: PageDefinition = {
 
     // 逐请求趋势（T4）：uPlot 趋势 + 压缩标记，视图在 views/timeline.ts；
     // 独立降级（渲染函数接受 null，桥失败/工具报错同走"时间线暂不可用"）
-    const timelineResult = await ctx.callTool("get_session_timeline");
+    const timelineResult = await ctx.callTool("get_session_timeline", sessionArgs);
     container.append(
       renderTimelineSection(
         doc,
@@ -89,7 +95,7 @@ export const contextPage: PageDefinition = {
     // 上下文组成条（T3）：独立降级（渲染函数接受 null）；展示密度按估算密度设置取
     // （US22 消费方接线：coarse 只显分组 / balanced 逐组数值+占比+锚点脚注（默认）/
     // detailed 另附块级说明；设置不可用缺省 balanced）
-    const compositionResult = await ctx.callTool("get_current_session_composition");
+    const compositionResult = await ctx.callTool("get_current_session_composition", sessionArgs);
     container.append(
       renderCompositionSection(
         doc,
@@ -99,7 +105,7 @@ export const contextPage: PageDefinition = {
     );
 
     // 统计卡（T5）：独立降级
-    const statsResult = await ctx.callTool("get_session_stats");
+    const statsResult = await ctx.callTool("get_session_stats", sessionArgs);
     container.append(
       renderStatsSection(
         doc,
@@ -109,8 +115,8 @@ export const contextPage: PageDefinition = {
 
     // 事件流与文件活动（T7）：并行取数，各自降级为空态/暂不可用
     const [eventsResult, fileActivityResult] = await Promise.all([
-      ctx.callTool("get_session_events"),
-      ctx.callTool("get_session_file_activity"),
+      ctx.callTool("get_session_events", sessionArgs),
+      ctx.callTool("get_session_file_activity", sessionArgs),
     ]);
     container.append(
       renderEventsSection(doc, eventsResult.ok ? (eventsResult.payload as unknown as EventsPayload) : null),
@@ -123,7 +129,7 @@ export const contextPage: PageDefinition = {
     // Context Browser（T6）：请求序列 + 组成明细（分组/DNA），视图独立文件，此处仅装配。
     // Browser 视图的取数缝是抛错式 CallToolFn（自带 try/catch 降级为"明细不可用"），
     // 与 PageContext.callTool 的 { ok, payload | error } 结果式契约在此适配。
-    const browser = createBrowserView({ doc, callTool: adaptCallTool(ctx) });
+    const browser = createBrowserView({ doc, callTool: adaptCallTool(ctx), sessionId: targetSessionId });
     const browserSection = el(doc, "section", "zci-section");
     browserSection.append(
       el(doc, "h2", "zci-subtitle", "Context Browser"),

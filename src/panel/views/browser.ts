@@ -86,8 +86,13 @@ interface DetailPayload {
   request?: RequestSummaryPayload | null;
 }
 
-export function createBrowserView(opts: { doc: Document; callTool: CallToolFn }): BrowserView {
-  const { doc, callTool } = opts;
+export function createBrowserView(opts: {
+  doc: Document;
+  callTool: CallToolFn;
+  /** 默认会话（review 修复 P0-3）：Insights 跳转携带 sessionId 时请求序列按该会话取 */
+  sessionId?: string;
+}): BrowserView {
+  const { doc, callTool, sessionId } = opts;
   const element = el("div", "zci-browser");
 
   let listPayload: ListPayload | null = null;
@@ -97,7 +102,7 @@ export function createBrowserView(opts: { doc: Document; callTool: CallToolFn })
 
   async function render(): Promise<void> {
     try {
-      listPayload = (await callTool("list_session_requests", {})) as ListPayload;
+      listPayload = (await callTool("list_session_requests", sessionId ? { sessionId } : {})) as ListPayload;
     } catch {
       listPayload = { available: false, reason: "tool-call-failed" };
     }

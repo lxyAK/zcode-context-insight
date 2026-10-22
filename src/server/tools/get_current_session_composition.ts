@@ -39,11 +39,15 @@ export function createCurrentSessionCompositionTool(
       "返回当前会话的上下文组成：以最近 full 请求为锚点的四分组组成估算" +
       "（system 提示 / 工具定义 / 历史消息 / 当前轮，均为估算值并附锚点归一化因子）" +
       "与 API 精确总量（锚点 inputTokens）。delta/tail 请求不参与锚定；" +
-      "纯 delta 会话只返回精确总量（composition 为空）；rollout 文件被宿主清理时降级返回。",
-    inputSchema: z.object({}),
+      "纯 delta 会话只返回精确总量（composition 为空）；rollout 文件被宿主清理时降级返回。" +
+      "可传 sessionId 直选会话（source=explicit，优先于心跳识别）。",
+    inputSchema: z.object({
+      sessionId: z.string().optional().describe("目标会话 ID；缺省解析当前会话（心跳优先，兜底最近活跃 interactive）"),
+    }),
     visibility: ["app"],
-    execute: async () => {
-      const payload = collectCurrentSessionComposition(deps);
+    execute: async (args) => {
+      const explicitId = typeof args.sessionId === "string" && args.sessionId ? args.sessionId : null;
+      const payload = collectCurrentSessionComposition(deps, explicitId);
       return {
         content: [{ type: "text", text: JSON.stringify(payload) }],
         structuredContent: payload,
@@ -55,31 +59,36 @@ export function createCurrentSessionCompositionTool(
 /** 采集逻辑（任何失败降级为 available=false，不抛错） */
 function collectCurrentSessionComposition(
   deps: CurrentSessionCompositionDeps,
+  explicitId: string | null,
 ): Record<string, unknown> {
-  // 1) 会话识别：心跳精确优先；无心跳走 db 最近活跃 interactive 兜底（ADR-0003）。
+  // 1) 会话识别：显式指定（P0-3）> 心跳精确 > db 最近活跃 interactive 兜底（ADR-0003）。
   //    兜底查询遇 schema 漂移（如 session 表缺失）按 T13 分类降级，不抛错
   const heartbeatPath = deps.heartbeatPath ?? resolveHeartbeatPath();
-  let session: { id: string; source: "heartbeat" | "inferred" } | null = null;
-  const heartbeat = readHeartbeat(heartbeatPath);
-  if (heartbeat) {
-    session = { id: heartbeat.sessionId, source: "heartbeat" };
+  let session: { id: string; source: "explicit" | "heartbeat" | "inferred" } | null = null;
+  if (explicitId) {
+    session = { id: explicitId, source: "explicit" };
   } else {
-    const opened = openReadonlyDatabase(deps.dbPath ?? resolveDbPath());
-    if (opened.ok) {
-      try {
-        const current = resolveCurrentSession(opened.db, ""); // 心跳路径传空 → 走推断兜底分支
-        if (current) session = { id: current.id, source: current.source };
-      } catch (err) {
-        return {
-          available: false,
-          reason: classifyDbError(err),
-          session: null,
-          exactTotalTokens: null,
-          anchor: null,
-          composition: null,
-        };
-      } finally {
-        opened.db.close();
+    const heartbeat = readHeartbeat(heartbeatPath);
+    if (heartbeat) {
+      session = { id: heartbeat.sessionId, source: "heartbeat" };
+    } else {
+      const opened = openReadonlyDatabase(deps.dbPath ?? resolveDbPath());
+      if (opened.ok) {
+        try {
+          const current = resolveCurrentSession(opened.db, ""); // 心跳路径传空 → 走推断兜底分支
+          if (current) session = { id: current.id, source: current.source };
+        } catch (err) {
+          return {
+            available: false,
+            reason: classifyDbError(err),
+            session: null,
+            exactTotalTokens: null,
+            anchor: null,
+            composition: null,
+          };
+        } finally {
+          opened.db.close();
+        }
       }
     }
   }
