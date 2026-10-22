@@ -1,0 +1,23 @@
+{
+  "name": "zcode-context-insight",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "ZCode 的上下文与 token 可视化插件：跨会话总览、会话内上下文仪表盘、代理网络与 /context 命令。",
+  "license": "Apache-2.0",
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "dev": "node scripts/dev.mjs",
+    "typecheck": "tsc --noEmit",
+    "test": "npm run build && vitest run"
+  },
+  "devDependencies": {
+    "@modelcontextprotocol/client": "^2.3.1",
+    "@modelcontextprotocol/server": "^2.3.1",
+    "@types/node": "^26.6.5",
+    "esbuild": "^0.28.2",
+    "happy-dom": "^21.0.4",
+    "typescript": "^7.0.2",
+    "vitest": "^5.0.5"
+  }
+}
