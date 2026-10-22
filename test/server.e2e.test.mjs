@@ -175,6 +175,25 @@ describe("MCP server（stdio e2e）", () => {
     expect(payload.root).toBeNull();
   });
 
+  it("tools/list 含 T7 工具 get_session_events / get_session_file_activity，app+model 双可见", async () => {
+    const result = await server.request("tools/list", {});
+    for (const name of ["get_session_events", "get_session_file_activity"]) {
+      const tool = result.tools.find((t) => t.name === name);
+      expect(tool, `工具列表: ${JSON.stringify(result.tools.map((t) => t.name))}`).toBeTruthy();
+      expect(tool._meta?.ui?.visibility).toEqual(["model", "app"]);
+    }
+  });
+
+  it("tools/call T7 工具（db 缺失时）降级 available=false，不报错", async () => {
+    for (const name of ["get_session_events", "get_session_file_activity"]) {
+      const result = await server.request("tools/call", { name, arguments: {} });
+      expect(result.isError).toBeFalsy();
+      const payload = result.structuredContent ?? JSON.parse(result.content[0].text);
+      expect(payload.available).toBe(false);
+      expect(payload.reason).toBe("db-not-found");
+    }
+  });
+
   it("resources/read 以 mcp-app MIME 返回自包含的 panel.html", async () => {
     const result = await server.request("resources/read", {
       uri: "ui://zcode-context-insight/panel.html",

@@ -1,8 +1,26 @@
 /**
- * 面板装配层：ui/initialize 握手 → callServerTool(get_overview / get_current_session_usage) → 渲染。
+ * 面板装配层：ui/initialize 握手 → callServerTool(get_overview / get_current_session_usage /
+ * get_session_stats / get_fleet_tree / get_session_events / get_session_file_activity) → 渲染。
  * 页面骨架（页头 + 概览区 + 当前会话用量区）在此；后续工单的页面（Insights / Context 仪表盘 / Fleet）
  * 以新文件加入并在 renderOverview 处替换/扩展，不动桥协议层。
  */
+
+/** 通用工具文本载荷解析：取首个 text 块 JSON；无文本返回 null */
+async function callTextTool(
+  bridge: BridgeClient,
+  name: string,
+): Promise<Record<string, unknown> | null> {
+  try {
+    const result = (await bridge.request("tools/call", {
+      name,
+      arguments: {},
+    })) as { content?: Array<{ type: string; text?: string }> };
+    const text = result.content?.find((c) => c.type === "text")?.text;
+    return text ? (JSON.parse(text) as Record<string, unknown>) : null;
+  } catch {
+    return null; // 桥错误 → 降级提示（各视图自行处理 null）
+  }
+}
 
 /** 当前会话用量载荷（get_current_session_usage 的 structuredContent 形状） */
 interface UsagePayload {
@@ -28,6 +46,8 @@ import { BridgeClient, PostMessageTransport } from "./bridge.ts";
 import type { PostTarget } from "./bridge.ts";
 import { renderStatsSection, type SessionStatsPayload } from "./views/stats.ts";
 import { renderFleetSection, type FleetTreePayload } from "./views/fleet.ts";
+import { renderEventsSection, renderFileActivitySection } from "./views/events.ts";
+import type { EventsPayload, FileActivityPayload } from "./views/events.ts";
 
 /** MCP Apps 协议版本（研究笔记 02 §2，与官方面板一致） */
 export const PROTOCOL_VERSION = "2026-01-26";
@@ -102,20 +122,18 @@ export async function mountPanel(opts: MountOptions): Promise<void> {
     stats = null; // 桥错误 → 降级提示
   }
 
-  // Fleet 代理网络树（T10）：刷新式静态树，失败不炸既有区
-  let fleet: FleetTreePayload | null = null;
-  try {
-    const fleetResult = (await bridge.request("tools/call", {
-      name: "get_fleet_tree",
-      arguments: {},
-    })) as { content?: Array<{ type: string; text?: string }> };
-    const fleetText = fleetResult.content?.find((c) => c.type === "text")?.text;
-    fleet = fleetText ? (JSON.parse(fleetText) as FleetTreePayload) : null;
-  } catch {
-    fleet = null; // 桥错误 → 降级提示
-  }
+  // Fleet 代理网络树（T10）+ 事件流与文件活动（T7）：并行取数，失败各自降级
+  const [fleetPayload, eventsPayload, fileActivityPayload] = await Promise.all([
+    callTextTool(bridge, "get_fleet_tree"),
+    callTextTool(bridge, "get_session_events"),
+    callTextTool(bridge, "get_session_file_activity"),
+  ]);
 
-  renderOverview(container, init, JSON.parse(textBlock.text), usage, stats, fleet);
+  renderOverview(container, init, JSON.parse(textBlock.text), usage, stats, fleetPayload as FleetTreePayload | null);
+  container.append(
+    renderEventsSection(container.ownerDocument, eventsPayload as EventsPayload | null),
+    renderFileActivitySection(container.ownerDocument, fileActivityPayload as FileActivityPayload | null),
+  );
 }
 
 function el(
