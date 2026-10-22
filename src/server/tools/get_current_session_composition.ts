@@ -1,5 +1,5 @@
 /**
- * 工具 get_current_session_composition（T3，app+model 双可见）：
+ * 工具 get_current_session_composition（T3，面板专用 app 可见）：
  * 返回当前会话的上下文组成——以最近 full 请求为锚点的四分组组成估算
  * （system 提示 / 工具定义 / 历史消息 / 当前轮，ADR-0002：必须标注估算）
  * 与 API 精确总量（锚点 response.usage.inputTokens）。
@@ -41,7 +41,7 @@ export function createCurrentSessionCompositionTool(
       "与 API 精确总量（锚点 inputTokens）。delta/tail 请求不参与锚定；" +
       "纯 delta 会话只返回精确总量（composition 为空）；rollout 文件被宿主清理时降级返回。",
     inputSchema: z.object({}),
-    visibility: ["model", "app"],
+    visibility: ["app"],
     execute: async () => {
       const payload = collectCurrentSessionComposition(deps);
       return {

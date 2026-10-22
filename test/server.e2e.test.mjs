@@ -105,6 +105,8 @@ describe("MCP server（stdio e2e）", () => {
     expect(result.capabilities.resources).toBeDefined();
   }, 30000);
 
+  // 可见性分标（spec Implementation Decisions：面板专用工具标记 app 可见；
+  // 供模型调用的工具标记 model 可见）。get_overview 是面板连通性探针 → 仅 app。
   it("tools/list 含示例工具 get_overview，且 _meta.ui.visibility 标记 app 可见", async () => {
     const result = await server.request("tools/list", {});
     const tool = result.tools.find((t) => t.name === "get_overview");
@@ -113,7 +115,6 @@ describe("MCP server（stdio e2e）", () => {
     const visibility = tool._meta?.ui?.visibility;
     expect(Array.isArray(visibility)).toBe(true);
     expect(visibility).toContain("app");
-    expect(visibility).toContain("model");
   });
 
   it("tools/call get_overview 返回插件名与版本，版本与 package.json 一致", async () => {
@@ -130,25 +131,26 @@ describe("MCP server（stdio e2e）", () => {
     expect(payload.greeting.length).toBeGreaterThan(0);
   });
 
-  it("tools/list 含 get_current_session_usage，app+model 双可见", async () => {
+  // 面板专用工具可见性分标（spec：面板专用 → ["app"]）
+  it("tools/list 含 get_current_session_usage，仅 app 可见（面板专用分标）", async () => {
     const result = await server.request("tools/list", {});
     const tool = result.tools.find((t) => t.name === "get_current_session_usage");
     expect(tool, `工具列表: ${JSON.stringify(result.tools.map((t) => t.name))}`).toBeTruthy();
-    expect(tool._meta?.ui?.visibility).toEqual(["model", "app"]);
+    expect(tool._meta?.ui?.visibility).toEqual(["app"]);
   });
 
-  it("tools/list 含 get_insights，app+model 双可见", async () => {
+  it("tools/list 含 get_insights，仅 app 可见（面板专用分标）", async () => {
     const result = await server.request("tools/list", {});
     const tool = result.tools.find((t) => t.name === "get_insights");
     expect(tool, `工具列表: ${JSON.stringify(result.tools.map((t) => t.name))}`).toBeTruthy();
-    expect(tool._meta?.ui?.visibility).toEqual(["model", "app"]);
+    expect(tool._meta?.ui?.visibility).toEqual(["app"]);
   });
 
-  it("tools/list 含 get_activity_insights，app+model 双可见", async () => {
+  it("tools/list 含 get_activity_insights，仅 app 可见（面板专用分标）", async () => {
     const result = await server.request("tools/list", {});
     const tool = result.tools.find((t) => t.name === "get_activity_insights");
     expect(tool, `工具列表: ${JSON.stringify(result.tools.map((t) => t.name))}`).toBeTruthy();
-    expect(tool._meta?.ui?.visibility).toEqual(["model", "app"]);
+    expect(tool._meta?.ui?.visibility).toEqual(["app"]);
   });
 
   it("tools/call get_insights（db 缺失时）降级 available=false，不报错", async () => {
@@ -184,11 +186,11 @@ describe("MCP server（stdio e2e）", () => {
     expect(payload.reason).toBe("db-not-found");
   });
 
-  it("tools/list 含 get_session_timeline，app+model 双可见", async () => {
+  it("tools/list 含 get_session_timeline，仅 app 可见（面板专用分标）", async () => {
     const result = await server.request("tools/list", {});
     const tool = result.tools.find((t) => t.name === "get_session_timeline");
     expect(tool, `工具列表: ${JSON.stringify(result.tools.map((t) => t.name))}`).toBeTruthy();
-    expect(tool._meta?.ui?.visibility).toEqual(["model", "app"]);
+    expect(tool._meta?.ui?.visibility).toEqual(["app"]);
   });
 
   it("tools/call get_session_timeline（db 缺失时）降级 available=false，不报错", async () => {
@@ -204,14 +206,14 @@ describe("MCP server（stdio e2e）", () => {
     expect(payload.compactions).toBeNull();
   });
 
-  it("tools/list 含 get_session_stats，app+model 双可见", async () => {
+  it("tools/list 含 get_session_stats，仅 app 可见（面板专用分标）", async () => {
     const result = await server.request("tools/list", {});
     const tool = result.tools.find((t) => t.name === "get_session_stats");
     expect(tool, `工具列表: ${JSON.stringify(result.tools.map((t) => t.name))}`).toBeTruthy();
-    expect(tool._meta?.ui?.visibility).toEqual(["model", "app"]);
+    expect(tool._meta?.ui?.visibility).toEqual(["app"]);
   });
 
-  it("tools/list 含 get_current_session_report（/context 后端），model 可见（验收项 3 前置）", async () => {
+  it("tools/list 含 get_current_session_report（/context 后端），model+app 双可见（验收项 3 前置）", async () => {
     const result = await server.request("tools/list", {});
     const tool = result.tools.find((t) => t.name === "get_current_session_report");
     expect(tool, `工具列表: ${JSON.stringify(result.tools.map((t) => t.name))}`).toBeTruthy();
@@ -221,13 +223,16 @@ describe("MCP server（stdio e2e）", () => {
     expect(tool._meta?.ui?.visibility).toContain("app");
   });
 
-  it("新增工具不改动既有工具的可见性标记（验收项 4）", async () => {
+  it("可见性分标（spec：面板专用 app / 供模型调用 model）：面板专用工具仅 app，/context 后端保持 model+app", async () => {
     const result = await server.request("tools/list", {});
     const byName = Object.fromEntries(result.tools.map((t) => [t.name, t._meta?.ui?.visibility]));
-    expect(byName.get_overview).toContain("app");   // 面板连通性探针
-    expect(byName.get_overview).toContain("model");
-    expect(byName.get_current_session_usage).toEqual(["model", "app"]);
-    expect(byName.get_session_stats).toEqual(["model", "app"]);
+    // 唯一供模型调用的工具：/context 命令正文指示模型调用（commands/context.md）
+    expect(byName.get_current_session_report).toEqual(["model", "app"]);
+    // 其余全部为面板专用：app 可见、不标 model
+    for (const [name, visibility] of Object.entries(byName)) {
+      if (name === "get_current_session_report") continue;
+      expect(visibility, `${name} 应为面板专用分标`).toEqual(["app"]);
+    }
   });
 
   it("tools/call get_session_stats（db 缺失时）降级 available=false，不报错", async () => {
@@ -241,11 +246,11 @@ describe("MCP server（stdio e2e）", () => {
     expect(payload.reason).toBe("db-not-found");
   });
 
-  it("tools/list 含 get_fleet_tree，app+model 双可见", async () => {
+  it("tools/list 含 get_fleet_tree，仅 app 可见（面板专用分标）", async () => {
     const result = await server.request("tools/list", {});
     const tool = result.tools.find((t) => t.name === "get_fleet_tree");
     expect(tool, `工具列表: ${JSON.stringify(result.tools.map((t) => t.name))}`).toBeTruthy();
-    expect(tool._meta?.ui?.visibility).toEqual(["model", "app"]);
+    expect(tool._meta?.ui?.visibility).toEqual(["app"]);
   });
 
   it("tools/call get_fleet_tree（db 缺失时）降级 available=false，不报错", async () => {
@@ -260,12 +265,12 @@ describe("MCP server（stdio e2e）", () => {
     expect(payload.root).toBeNull();
   });
 
-  it("tools/list 含 T7 工具 get_session_events / get_session_file_activity，app+model 双可见", async () => {
+  it("tools/list 含 T7 工具 get_session_events / get_session_file_activity，仅 app 可见（面板专用分标）", async () => {
     const result = await server.request("tools/list", {});
     for (const name of ["get_session_events", "get_session_file_activity"]) {
       const tool = result.tools.find((t) => t.name === name);
       expect(tool, `工具列表: ${JSON.stringify(result.tools.map((t) => t.name))}`).toBeTruthy();
-      expect(tool._meta?.ui?.visibility).toEqual(["model", "app"]);
+      expect(tool._meta?.ui?.visibility).toEqual(["app"]);
     }
   });
 
@@ -341,11 +346,11 @@ describe("MCP server e2e：设置与数据版本工具（T12）", () => {
 });
 
 describe("MCP server e2e：get_current_session_composition（T3）", () => {
-  it("tools/list 含 get_current_session_composition，app+model 双可见", async () => {
+  it("tools/list 含 get_current_session_composition，仅 app 可见（面板专用分标）", async () => {
     const result = await server.request("tools/list", {});
     const tool = result.tools.find((t) => t.name === "get_current_session_composition");
     expect(tool, `工具列表: ${JSON.stringify(result.tools.map((t) => t.name))}`).toBeTruthy();
-    expect(tool._meta?.ui?.visibility).toEqual(["model", "app"]);
+    expect(tool._meta?.ui?.visibility).toEqual(["app"]);
   });
 
   it("无会话识别来源（无心跳且 db 缺失）时降级 available=false，不报错", async () => {

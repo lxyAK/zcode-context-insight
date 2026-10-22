@@ -1,6 +1,6 @@
 /**
  * 示例工具 get_overview：返回插件自检信息。
- * 面板（app）与模型（model）均可见——本工具是 T1 全链路（面板桥 → callServerTool → 渲染）的连通性探针。
+ * 面板专用（app 可见）——本工具是 T1 全链路（面板桥 → callServerTool → 渲染）的连通性探针。
  */
 import { z } from "zod";
 import type { ToolDefinition } from "../registry.ts";
@@ -12,7 +12,7 @@ export const getOverviewTool: ToolDefinition = {
   description:
     "返回 Context Insight 插件的自检信息（名称、版本、MCP server 名与问候语），用于面板与模型侧连通性验证。",
   inputSchema: z.object({}),
-  visibility: ["model", "app"],
+  visibility: ["app"],
   execute: async () => {
     const payload = {
       plugin: PLUGIN_NAME,

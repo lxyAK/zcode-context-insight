@@ -1,5 +1,5 @@
 /**
- * 工具 get_fleet_tree（T10，app+model 双可见）：
+ * 工具 get_fleet_tree（T10，面板专用 app 可见）：
  * 返回以指定会话（默认当前会话，复用心跳/兜底识别，ADR-0003）为根的 Fleet 代理网络树。
  * 树边 = session.parent_id；每个节点聚合该会话自身的精确用量（token/请求耗时合计）
  * 与状态（最近一次请求 status、错误请求数）。刷新式静态快照，不做实时推送。
@@ -34,7 +34,7 @@ export function createFleetTreeTool(deps: FleetTreeDeps = {}): ToolDefinition {
       /** 根会话 ID；缺省为当前会话（心跳/兜底识别） */
       sessionId: z.string().optional(),
     }),
-    visibility: ["model", "app"],
+    visibility: ["app"],
     execute: async (args) => {
       const payload = collectFleetTree(deps, args);
       return {

@@ -1,5 +1,5 @@
 /**
- * 工具 set_settings（T12，app+model 双可见，写操作）：更新插件设置并持久化。
+ * 工具 set_settings（T12，面板专用 app 可见，写操作）：更新插件设置并持久化。
  *
  * 语义（工单约定）：
  *  - 增量合并：只更新提交的字段，未提交字段保持原值；
@@ -32,7 +32,7 @@ export function createSetSettingsTool(deps: SetSettingsDeps = {}): ToolDefinitio
       "合法枚举见 get_settings）。写入插件数据目录 settings.json，跨会话生效；" +
       "未知枚举不报错，该字段回退默认值并在 warnings 中提示。",
     inputSchema,
-    visibility: ["model", "app"],
+    visibility: ["app"],
     readOnlyHint: false,
     execute: async (args) => {
       const path = deps.settingsPath ?? resolveSettingsPath();

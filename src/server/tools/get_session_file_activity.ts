@@ -1,5 +1,5 @@
 /**
- * 工具 get_session_file_activity（T7，app+model 双可见）：
+ * 工具 get_session_file_activity（T7，面板专用 app 可见）：
  * 返回会话的文件读写/搜索记录（Read/Write/Edit/Grep/Glob 工具调用）按时间升序；
  * 每条含路径、操作类型（read/write/edit/search）与行数变化
  * （Edit=additions(new_string 行数)/deletions(old_string 行数)、Write=additions(content 行数)，
@@ -32,7 +32,7 @@ export function createSessionFileActivityTool(deps: SessionFileActivityDeps = {}
     inputSchema: z.object({
       sessionId: z.string().optional().describe("目标会话 ID；缺省取当前会话"),
     }),
-    visibility: ["model", "app"],
+    visibility: ["app"],
     execute: async (args) => {
       const sessionId = typeof args.sessionId === "string" ? args.sessionId : undefined;
       const payload = collectSessionFileActivity(deps, sessionId);

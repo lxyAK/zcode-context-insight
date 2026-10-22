@@ -1,5 +1,5 @@
 /**
- * 工具 get_session_stats（T5，app+model 双可见）：
+ * 工具 get_session_stats（T5，面板专用 app 可见）：
  * 返回当前会话的统计汇总口径——缓存命中率（cacheRead / input 合计，input 已含缓存读）、
  * TTFT 分布 p50/p95（nearest-rank，仅计 time_to_first_token_ms 非空样本）、
  * 重试计数（SUM(retry_count)）、上下文超限计数（SUM(context_exceeded)）与 token 合计。
@@ -28,7 +28,7 @@ export function createSessionStatsTool(deps: SessionStatsDeps = {}): ToolDefinit
       "上下文超限计数与 token 合计（总量以 computed_total_tokens 为准）。" +
       "样本缺失的项（命中率、分位数）返回 null 而非 0。db 不可用时 available=false 降级返回。",
     inputSchema: z.object({}),
-    visibility: ["model", "app"],
+    visibility: ["app"],
     execute: async () => {
       const payload = collectSessionStats(deps);
       return {

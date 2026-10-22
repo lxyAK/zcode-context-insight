@@ -1,5 +1,5 @@
 /**
- * 工具 get_current_session_report（T11，model+app 双可见）：
+ * 工具 get_current_session_report（T11，model+app 双可见：/context 命令后端，供模型调用）：
  * /context 命令的后端——返回当前会话的组成摘要：
  *  - 精确用量（aggregateSessionUsage，API 精确值，总量以 computed_total_tokens 为准）；
  *  - 组成估算（T3 rollout 估算未接入前：estimated=false，以 API 精确总量兜底呈现，

@@ -1,5 +1,5 @@
 /**
- * 请求明细工具（T6，app+model 双可见）：Context Browser 与 DNA 扁平视图的数据面。
+ * 请求明细工具（T6，面板专用 app 可见）：Context Browser 与 DNA 扁平视图的数据面。
  *
  *  - list_session_requests：列出会话的模型请求序列（来自 rollout model-io JSONL，
  *    每行=一次完整请求记录），返回形态（messagesKind full/delta/tail）与精确 usage；
@@ -462,7 +462,7 @@ export function createListSessionRequestsTool(deps: RequestDetailDeps = {}): Too
       "model-io JSONL：每行含请求标识、形态（messagesKind：full=完整快照 / delta=尾部增量 / tail=中间形态）、" +
       "消息偏移与条数、精确 usage。rollout 文件不存在（被清理的旧会话）时 available=false 降级。",
     inputSchema: z.object({ sessionId: z.string().optional() }),
-    visibility: ["model", "app"],
+    visibility: ["app"],
     execute: async (args) => {
       const input = args as { sessionId?: string };
       const payload = collectRequestList(deps, input);
@@ -501,7 +501,7 @@ export function createGetRequestDetailTool(deps: RequestDetailDeps = {}): ToolDe
       "scale=精确输入/估算合计 供锚点校准）。仅 messagesKind=full 的请求有组成快照，" +
       "delta/tail 返回 snapshot=none（纯 delta 会话显示无快照空态）。",
     inputSchema: z.object({ sessionId: z.string().optional(), requestId: z.string() }),
-    visibility: ["model", "app"],
+    visibility: ["app"],
     execute: async (args) => {
       const input = args as { sessionId?: string; requestId?: string };
       const payload = collectRequestDetail(deps, input);

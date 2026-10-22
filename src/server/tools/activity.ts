@@ -1,5 +1,5 @@
 /**
- * 工具 get_activity_insights（T9，app+model 双可见）：Insights 活跃数据。
+ * 工具 get_activity_insights（T9，面板专用 app 可见）：Insights 活跃数据。
  *
  * 返回两类数据（同一时间窗口）：
  *  - daily：按「用户所在时区的自然日」聚合的活跃度（请求数 / computed_total_tokens /
@@ -63,7 +63,7 @@ export function createActivityTool(deps: ActivityDeps = {}): ToolDefinition {
       "（days 参数，默认 91）。口径：token 以 computed_total_tokens 为准；" +
       "query_source=session_title 的后台请求不计入；子代理会话请求计入。db 不可用时 available=false 降级返回。",
     inputSchema,
-    visibility: ["model", "app"],
+    visibility: ["app"],
     execute: async (args: Record<string, unknown>) => {
       const { days: daysArg } = inputSchema.parse(args);
       const days = daysArg ?? DEFAULT_DAYS;

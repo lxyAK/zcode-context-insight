@@ -1,5 +1,5 @@
 /**
- * 工具 get_current_session_usage（T2，app+model 双可见）：
+ * 工具 get_current_session_usage（T2，面板专用 app 可见）：
  * 返回当前会话的请求级精确用量（input/output/缓存读/缓存写/推理/请求数/TTFT 合计，
  * 总量以 computed_total_tokens 为准）与会话识别来源标注（heartbeat=心跳精确 /
  * inferred=最近活跃推断，ADR-0003）。
@@ -31,7 +31,7 @@ export function createCurrentSessionUsageTool(
       "会话识别来源：heartbeat=用户提交心跳（精确）；inferred=最近活跃 interactive 会话（推断）。" +
       "db 不可用时 available=false 降级返回。",
     inputSchema: z.object({}),
-    visibility: ["model", "app"],
+    visibility: ["app"],
     execute: async () => {
       const payload = collectCurrentSessionUsage(deps);
       return {

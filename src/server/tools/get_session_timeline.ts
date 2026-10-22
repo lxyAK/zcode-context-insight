@@ -1,5 +1,5 @@
 /**
- * 工具 get_session_timeline（T4，app+model 双可见）：
+ * 工具 get_session_timeline（T4，面板专用 app 可见）：
  * 返回会话逐请求时间线（input/output/缓存读/缓存写/推理/总量 + 时间戳 + 模型，来自 DB
  * model_usage，按 started_at 升序），并把 part 表 compaction 记录作为标记并入
  * （含 preCompactTokenCount 与 truePostCompactTokenCount、触发方式）。
@@ -34,7 +34,7 @@ export function createSessionTimelineTool(
     inputSchema: z.object({
       sessionId: z.string().optional().describe("目标会话 ID；缺省解析当前会话（心跳优先，兜底最近活跃 interactive）"),
     }),
-    visibility: ["model", "app"],
+    visibility: ["app"],
     execute: async (args: Record<string, unknown>) => {
       const payload = collectSessionTimeline(deps, args);
       return {

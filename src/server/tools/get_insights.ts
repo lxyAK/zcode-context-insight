@@ -1,5 +1,5 @@
 /**
- * 工具 get_insights（T8，app+model 双可见）：跨会话总览。
+ * 工具 get_insights（T8，面板专用 app 可见）：跨会话总览。
  * 返回 KPI 带（总 token / 会话数 / 活跃天数）、7 天 token 趋势、项目清单与
  * 可筛选会话列表（标题/项目/时间/token）。KPI 与趋势为全局口径（不受列表筛选影响）。
  *
@@ -32,7 +32,7 @@ export function createInsightsTool(deps: InsightsDeps = {}): ToolDefinition {
       sort: z.enum(["recent", "tokens"]).optional().describe("排序：recent=按更新时间降序（默认），tokens=按合计 token 降序"),
       limit: z.number().int().optional().describe("列表长度上限（1-200，默认 50）"),
     }),
-    visibility: ["model", "app"],
+    visibility: ["app"],
     execute: async (args) => {
       const payload = collectInsightsSafe(deps, args);
       return {

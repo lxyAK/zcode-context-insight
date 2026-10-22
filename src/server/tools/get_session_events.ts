@@ -1,5 +1,5 @@
 /**
- * 工具 get_session_events（T7，app+model 双可见）：
+ * 工具 get_session_events（T7，面板专用 app 可见）：
  * 返回会话事件流（压缩事件 + 模型切换事件）按时间升序；压缩事件含触发方式（manual/auto）
  * 与压缩前后 token 数（spec：压缩账本读 compaction part）。
  *
@@ -31,7 +31,7 @@ export function createSessionEventsTool(deps: SessionEventsDeps = {}): ToolDefin
     inputSchema: z.object({
       sessionId: z.string().optional().describe("目标会话 ID；缺省取当前会话"),
     }),
-    visibility: ["model", "app"],
+    visibility: ["app"],
     execute: async (args) => {
       const sessionId = typeof args.sessionId === "string" ? args.sessionId : undefined;
       const payload = collectSessionEvents(deps, sessionId);

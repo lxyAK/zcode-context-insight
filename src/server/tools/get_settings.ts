@@ -1,5 +1,5 @@
 /**
- * 工具 get_settings（T12，app+model 双可见）：读取插件设置。
+ * 工具 get_settings（T12，面板专用 app 可见）：读取插件设置。
  * 设置存 server 侧插件数据目录 settings.json（跨会话持久）；
  * 面板 stateKey 只存窗口布局类状态，不存设置（划分见工单 T12 / 笔记 02 §3）。
  * 缺文件/损坏/未知枚举一律容错回退默认值（sanitizeSettings）。
@@ -23,7 +23,7 @@ export function createGetSettingsTool(deps: GetSettingsDeps = {}): ToolDefinitio
       "趋势粒度 trendGranularity：request/turn/day；估算密度 estimationDensity：coarse/balanced/detailed）。" +
       "设置跨会话持久于插件数据目录 settings.json；文件缺失、损坏或含未知枚举时容错回退默认值。",
     inputSchema: z.object({}),
-    visibility: ["model", "app"],
+    visibility: ["app"],
     execute: async () => {
       const path = deps.settingsPath ?? resolveSettingsPath();
       if (!path) {
