@@ -1,7 +1,11 @@
 /**
- * 组成估算（ADR-0002 口径，T3）：
+ * 组成估算（ADR-0002 口径，T3；P0-4 起为全部组成估算的单一底座——
+ * get_current_session_composition / get_current_session_report /
+ * get_request_detail 共用）：
  *  - 启发式分组折算：按内容字符特征估算 token（ASCII≈4 字符/token、CJK≈1 字符/token 的
  *    量级折算），分到固定四分组（GLOSSARY：system 提示 / 工具定义 / 历史消息 / 当前轮）；
+ *  - system 双计去重（T6 实测结论）：body.system 与头部 role=system 消息逐字重复，
+ *    分组只按 messages 计一次，body.system 仅在无 system 消息时兜底；
  *  - 锚点校准：以最近 full 请求的 API 精确 usage.inputTokens 为锚点做比例归一化，
  *    各组 floor(raw×scale) 后按最大余数法补齐差值（余数并列按组序稳定分配），
  *    保证 Σcalibrated === 锚点精确值——偏差归一化方式（比例 + 最大余数）在工具返回中原样透出；
@@ -79,7 +83,9 @@ function estimateToolsTokens(tools: unknown[]): number {
 
 /**
  * 对 full 快照做四分组原始折算：
- *  - system：body.system 各块 + messages 中 role=system 的消息（含压缩摘要类注入）；
+ *  - system：messages 中 role=system 的消息（含压缩摘要类注入）。body.system 与头部
+ *    system 消息逐字重复（T6 实测结论，P0-4 统一）：分组只按 messages 计一次，
+ *    body.system 仅在 messages 无 system 消息时兜底；
  *  - tools：body.tools 序列化折算；
  *  - 当前轮：最后一条 user 消息及其后的非 system 消息（当轮进行中的内容）；
  *  - 历史消息：此前全部非 system 消息。无 user 消息时全部归历史。
@@ -87,7 +93,11 @@ function estimateToolsTokens(tools: unknown[]): number {
 export function estimateRawComposition(record: RolloutRecord): CompositionGroups {
   const groups: CompositionGroups = { system: 0, tools: 0, history: 0, currentTurn: 0 };
 
-  for (const block of record.systemBlocks) groups.system += estimateTextTokens(block);
+  // system 双计去重：messages 有 system 消息时 body.system 不再重复计入
+  const hasSystemMessage = record.messages.some((m) => m.role === "system");
+  if (!hasSystemMessage) {
+    for (const block of record.systemBlocks) groups.system += estimateTextTokens(block);
+  }
   groups.tools += estimateToolsTokens(record.tools);
 
   let lastUserIdx = -1;

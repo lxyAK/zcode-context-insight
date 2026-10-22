@@ -77,13 +77,13 @@ const DETAIL_FULL = textResult({
   usage: DETAIL_USAGE,
   snapshot: "full",
   composition: {
-    estimatedTotalTokens: 136,
-    scale: 1200 / 136,
+    estimatedTotalTokens: 138,
+    scale: 1200 / 138,
     groups: [
       { key: "system", label: "system 提示", estimatedTokens: 35, blockCount: 3 },
       { key: "tools", label: "工具定义", estimatedTokens: 39, blockCount: 2 },
       { key: "history", label: "历史消息", estimatedTokens: 57, blockCount: 3 },
-      { key: "current", label: "当前轮", estimatedTokens: 5, blockCount: 1 },
+      { key: "current", label: "当前轮", estimatedTokens: 7, blockCount: 1 },
     ],
     blocks: [
       { seq: 0, groupKey: "system", kind: "message", role: "system", estimatedTokens: 10, preview: "sys prompt a" },
@@ -94,7 +94,7 @@ const DETAIL_FULL = textResult({
       { seq: 5, groupKey: "history", kind: "message", role: "assistant", estimatedTokens: 17, preview: "ok", parts: [{ type: "reasoning", estimatedTokens: 11, preview: "thinking" }, { type: "text", estimatedTokens: 6, preview: "answer" }] },
       { seq: 6, groupKey: "history", kind: "message", role: "tool", toolName: "Read", estimatedTokens: 25, preview: "file content" },
       { seq: 7, groupKey: "system", kind: "message", role: "system", estimatedTokens: 5, preview: "reminder" },
-      { seq: 8, groupKey: "current", kind: "message", role: "user", estimatedTokens: 5, preview: "当前轮请求正文" },
+      { seq: 8, groupKey: "current", kind: "message", role: "user", estimatedTokens: 7, preview: "当前轮请求正文" },
     ],
   },
 });

@@ -504,9 +504,9 @@ const COMPOSITION_RESULT = (overrides = {}) => ({
         anchor: { requestId: "req-main-3", index: 2, kind: "full", inputTokens: 625, messageCount: 8, messageOffset: 0 },
         composition: {
           estimated: true,
-          raw: { system: 121, tools: 99, history: 170, currentTurn: 110 },
-          calibrated: { system: 151, tools: 124, history: 213, currentTurn: 137 },
-          scaleFactor: 1.25,
+          raw: { system: 72, tools: 99, history: 170, currentTurn: 110 },
+          calibrated: { system: 100, tools: 137, history: 236, currentTurn: 152 },
+          scaleFactor: 625 / 451,
         },
         ...overrides,
       }),
@@ -537,29 +537,30 @@ describe("面板组成条（mock 桥）", () => {
     const svg = root.querySelector("svg.zci-comp-bar");
     expect(svg).toBeTruthy();
 
-    // 四分段：data-group 标识 + 段宽按校准值/精确总量比例（手算：151/625=24.16 等）
+    // 四分段：data-group 标识 + 段宽按校准值/精确总量比例（手算：100/625=16 等；
+    // 校准常量与 test/composition.test.mjs 统一口径推导同源）
     const segs = [...svg.querySelectorAll("rect.zci-comp-seg")];
     expect(segs.map((s) => s.getAttribute("data-group"))).toEqual(["system", "tools", "history", "currentTurn"]);
-    expect(parseFloat(segs[0].getAttribute("width"))).toBeCloseTo((151 / 625) * 100, 1);
-    expect(parseFloat(segs[1].getAttribute("width"))).toBeCloseTo((124 / 625) * 100, 1);
-    expect(parseFloat(segs[2].getAttribute("width"))).toBeCloseTo((213 / 625) * 100, 1);
-    expect(parseFloat(segs[3].getAttribute("width"))).toBeCloseTo((137 / 625) * 100, 1);
+    expect(parseFloat(segs[0].getAttribute("width"))).toBeCloseTo((100 / 625) * 100, 1);
+    expect(parseFloat(segs[1].getAttribute("width"))).toBeCloseTo((137 / 625) * 100, 1);
+    expect(parseFloat(segs[2].getAttribute("width"))).toBeCloseTo((236 / 625) * 100, 1);
+    expect(parseFloat(segs[3].getAttribute("width"))).toBeCloseTo((152 / 625) * 100, 1);
     // 段起点衔接（x 累计）
-    expect(parseFloat(segs[1].getAttribute("x"))).toBeCloseTo((151 / 625) * 100, 1);
+    expect(parseFloat(segs[1].getAttribute("x"))).toBeCloseTo((100 / 625) * 100, 1);
 
     // "估算"角标（ADR-0002：估算必须标注，不冒充精确）
     expect(root.querySelector(".zci-badge-estimate")).toBeTruthy();
 
-    // 顶部总量为 API 精确值 625（非原始折算加总 500）
+    // 顶部总量为 API 精确值 625（非原始折算加总 451）
     expect(root.textContent).toContain("625");
-    expect(root.textContent).not.toContain("500");
+    expect(root.textContent).not.toContain("451");
 
     // 四分组名（GLOSSARY 固定命名）与图例数值
     expect(root.textContent).toContain("system 提示");
     expect(root.textContent).toContain("工具定义");
     expect(root.textContent).toContain("历史消息");
     expect(root.textContent).toContain("当前轮");
-    expect(root.textContent).toContain("151");
+    expect(root.textContent).toContain("236");
 
     // 锚点说明（最近 full 请求）
     expect(root.textContent).toContain("req-main-3");
@@ -635,9 +636,9 @@ describe("面板组成条（mock 桥）", () => {
     // 四分组名仍在（条+图例）
     expect(root.textContent).toContain("system 提示");
     expect(root.textContent).toContain("当前轮");
-    // 不显逐组校准数值与占比（151 等仅 balanced 及以上出现）
-    expect(norm(root.textContent)).not.toContain("151");
-    expect(root.textContent).not.toMatch(/24\.2%/);
+    // 不显逐组校准数值与占比（236 等仅 balanced 及以上出现）
+    expect(norm(root.textContent)).not.toContain("236");
+    expect(root.textContent).not.toMatch(/37\.8%/);
     // coarse 无锚点脚注（归一化因子等口径说明收起）
     expect(root.textContent).not.toContain("req-main-3");
   });
@@ -653,7 +654,7 @@ describe("面板组成条（mock 桥）", () => {
     const root = await mountContext(host.target, () => document.querySelector("svg.zci-comp-bar") !== null);
 
     // balanced 的信息保留（逐组数值 + 锚点脚注）
-    expect(root.textContent).toContain("151");
+    expect(root.textContent).toContain("236");
     expect(root.textContent).toContain("req-main-3");
     // detailed 追加：块级说明（锚点携带的消息条数与块级明细指引）
     expect(root.textContent).toContain("块级");

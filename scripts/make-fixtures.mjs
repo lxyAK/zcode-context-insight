@@ -8,12 +8,13 @@
  *  - test/fixtures/rollout/model-io-<sessionId>.jsonl：rollout JSONL 夹具，行结构对照研究
  *    笔记 03 §7（真实文件实测：头部 system 消息与 body.system 逐字重复；尾部可再出现
  *    system 消息；tool/user 消息 content 为字符串；assistant 为 [{type,text}] 分块数组）。
- *    两套行集并存（merge 约定：功能并集保留双方，code-review 阶段评估整合）：
- *    - S_MAIN（心跳当前会话，5 行）+ S_SUB（纯 delta + 坏行）：T3 组成估算行集，
+ *    行集（P0-4 起全部经统一解析/估算底座消费——src/server/rollout.ts 行解析 +
+ *    composition.ts 的 ceil(ASCII/4)+CJK×1 折算与四分组口径）：
+ *    - S_MAIN（心跳当前会话，5 行）+ S_SUB（纯 delta + 坏行）：组成估算行集，
  *      期望值见 test/composition.test.mjs 与 test/server.e2e.test.mjs 手算常量；
- *    - S_BROWSER（4 行 full/delta/full/tail）+ S_OLD（2 行纯 delta）：T6 请求序列/明细行集，
- *      内容长度刻意选为 4 的倍数（纯 ASCII）使估算可手算：
- *      T6 估算规则 = ceil(ASCII/4) + ceil(CJK*2/3)，期望值见 test/request-detail.test.mjs。
+ *    - S_BROWSER（4 行 full/delta/full/tail）+ S_OLD（2 行纯 delta）：请求序列/明细行集，
+ *      内容长度刻意选为 4 的倍数（纯 ASCII）使估算可手算，
+ *      期望值见 test/request-detail.test.mjs（估算规则同上，统一口径）。
  *
  * 红线：本脚本只写仓库内夹具路径，绝不触碰 ~/.zcode 真实库。
  * 幂等：每次删除重建。
@@ -510,19 +511,20 @@ const reasoningMsg = (reasoningLen, textLen) => ({
 /**
  * S_MAIN 主会话 rollout（5 行：full / delta / full(锚点,压缩后) / delta / tail）。
  *
- * 锚点 = 第 3 行（req-main-3，messagesKind=full，压缩后完整快照）四分组原始折算推导：
- *  - system 组 = body.system 块 + messages 中 role=system 的消息
- *      'S'×100（ASCII）→ ceil(100/4)=25；'系统提示'×6（24 个 CJK）→ 24
- *      'm'×40 → 10；'摘要'×31（62 个 CJK，压缩摘要消息）→ 62            合计 121
+ * 锚点 = 第 3 行（req-main-3，messagesKind=full，压缩后完整快照）四分组原始折算推导
+ * （P0-4 统一口径：system 双计去重——body.system 与头部 system 消息逐字重复只按
+ * messages 计一次；估算 = ceil(ASCII/4) + CJK×1）：
+ *  - system 组 = messages 中 role=system 的消息（body.system 不再重复计入）：
+ *      'm'×40 → 10；'摘要'×31（62 个 CJK，压缩摘要消息）→ 62            合计 72
  *  - tools 组 = TOOL1(62) + TOOL2(37)                                    合计 99
  *  - history 组 = 最后一条 user 之前的非 system 消息：
  *      '任务'×10（20 CJK）→ 20；'a'×200 → 50；'t'×400 → 100             合计 170
  *  - currentTurn 组 = 最后一条 user（'q'×80 → 20）及其后：
  *      reasoning 'r'×40 → 10 + text 'a'×80 → 20；'t'×240 → 60           合计 110
- *  Σraw = 500；锚点 usage.inputTokens = 625 → scale = 1.25
- *  校准：floor 值 151/123/212/137（和 623），余 2 按最大余数（tools .75 > history .5
- *  = currentTurn .5 > system .25，并列按组序）补 tools→124、history→213
- *  → calibrated = { system:151, tools:124, history:213, currentTurn:137 }，Σ = 625
+ *  Σraw = 451；锚点 usage.inputTokens = 625 → scale = 625/451
+ *  校准：floor 值 99/137/235/152（和 623），余 2 按最大余数（system .778 > history
+ *  .588 > currentTurn .439 > tools .195）补 system→100、history→236
+ *  → calibrated = { system:100, tools:137, history:236, currentTurn:152 }，Σ = 625
  */
 function buildMainRolloutLines() {
   return [
@@ -626,7 +628,7 @@ function buildSubRolloutLines() {
 
 // ============================================================================
 // rollout model-io 夹具（T6：请求明细 / Context Browser，S_BROWSER + S_OLD）
-// 估算规则与 T3 不同（T6 自带解析）：ceil(ASCII/4) + ceil(CJK×2/3)，
+// 估算规则与 T3 同源（P0-4 统一底座）：ceil(ASCII/4) + CJK×1，
 // 内容长度刻意选为 4 的倍数（纯 ASCII）→ 估算可手算，期望值见 test/request-detail.test.mjs。
 // ============================================================================
 
@@ -657,12 +659,12 @@ const rep = (ch, n) => ch.repeat(n);
  */
 function buildBrowserRolloutLines() {
   // --- 第 1 行：req-full-1，四分组块级结构的手算真值来源 ---
-  // 块与估算（ASCII ceil(len/4)；CJK "当前轮请求正文"=7 字 → ceil(7*2/3)=5）：
+  // 块与估算（统一口径 ASCII ceil(len/4)；CJK "当前轮请求正文"=7 字 → 7×1=7）：
   //   system 提示：A*40=10、B*80=20、尾部 S*20=5            → 小计 35，3 块
   //   工具定义：Read=19、Bash=20                             → 小计 39，2 块
   //   历史消息：user U*60=15、assistant(44+24)=11+6=17、tool D*100=25 → 小计 57，3 块
-  //   当前轮：最后一条 user（CJK 7 字）=5                    → 小计 5，1 块
-  //   估算合计 136；精确 usage.inputTokens=1200 → 校准系数 1200/136
+  //   当前轮：最后一条 user（CJK 7 字）=7                    → 小计 7，1 块
+  //   估算合计 138；精确 usage.inputTokens=1200 → 校准系数 1200/138
   const full1 = {
     type: "model_io",
     sessionId: S_BROWSER,

@@ -2,8 +2,9 @@
  * 请求明细工具功能缝基线（T6，工单预先约定的缝：in-process 直调工具 execute）。
  *
  * 数据源：test/fixtures/rollout/（scripts/make-fixtures.mjs 生成的 model-io JSONL）。
- * 期望值全部为独立手算常量（估算规则 = ceil(ASCII/4) + ceil(CJK×2/3)，
- * 内容长度在夹具中刻意设计为可手算），不经被测代码路径反推——夹具即真值来源。
+ * 期望值全部为独立手算常量（估算规则与 T3 组成估算同源——统一底座 composition.ts
+ * 的 ceil(ASCII/4) + CJK×1，review 修复 P0-4；内容长度在夹具中刻意设计为可手算），
+ * 不经被测代码路径反推——夹具即真值来源。
  *
  * 红线对照：所有测试读写 test/fixtures 合成夹具，绝不触碰 ~/.zcode 真实库与 rollout 目录。
  */
@@ -28,14 +29,14 @@ const S_BROWSER = "session_00000000000000000000000000000005";
 // 孙代理会话（在 db、无 rollout 文件）：S_SUB 已挂 T3 行集，缺文件降级路径改用此会话
 const S_SUBSUB = "sess_subagent_agent_00000000-0000-4000-8000-000000000004";
 
-// req-full-1 四分组手算（夹具注释即真值来源；估算规则 ASCII ceil(len/4)、CJK ceil(2n/3)）
+// req-full-1 四分组手算（夹具注释即真值来源；估算规则 ASCII ceil(len/4)、CJK×1）
 const FULL1_GROUPS = {
   system: { estimatedTokens: 35, blockCount: 3 }, // A*40=10 + B*80=20 + 尾部 S*20=5
   tools: { estimatedTokens: 39, blockCount: 2 }, // Read JSON 76 字=19 + Bash JSON 78 字=20
   history: { estimatedTokens: 57, blockCount: 3 }, // user 15 + assistant 17 + tool 25
-  current: { estimatedTokens: 5, blockCount: 1 }, // "当前轮请求正文" 7 个 CJK → 5
+  current: { estimatedTokens: 7, blockCount: 1 }, // "当前轮请求正文" 7 个 CJK → 7
 };
-const FULL1_ESTIMATED_TOTAL = 136;
+const FULL1_ESTIMATED_TOTAL = 138;
 const FULL1_USAGE = { inputTokens: 1200, outputTokens: 80, totalTokens: 1280, cacheReadTokens: 1000, cacheWriteTokens: 0 };
 
 // req-full-2：当前轮=最后一条 user（其后还有尾部 system 提醒也不归当前轮）
@@ -190,8 +191,8 @@ describe("get_request_detail（单请求组成明细，四分组块级）", () =
     ]);
     // tool 消息块携带工具名
     expect(blocks[6]).toMatchObject({ kind: "message", role: "tool", toolName: "Read", estimatedTokens: 25 });
-    // 当前轮 = 最后一条 user（CJK 估算）
-    expect(blocks[8]).toMatchObject({ kind: "message", role: "user", estimatedTokens: 5 });
+    // 当前轮 = 最后一条 user（CJK 估算：7 字 ×1）
+    expect(blocks[8]).toMatchObject({ kind: "message", role: "user", estimatedTokens: 7 });
   });
 
   it("full 请求：preview 为截断文本（≤120 字符），不外漏全文", async () => {

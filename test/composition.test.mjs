@@ -116,19 +116,24 @@ describe("rollout 解析底座（readRolloutFile / 分类与容错）", () => {
 const CALIBRATED_DEVIATION_TOLERANCE = 0;
 const RAW_HEURISTIC_BAND = 0.5;
 
-// S_MAIN 锚点（第 3 行 full）四分组原始折算，逐项推导见 make-fixtures.mjs 注释：
-//   system = body.system(25+24) + 角色为 system 的消息(10+62)            = 121
+// S_MAIN 锚点（第 3 行 full）四分组原始折算，逐项推导见 make-fixtures.mjs 注释。
+// 统一估算口径（review 修复 P0-4）：估算函数 = ceil(ASCII/4) + CJK×1（composition.ts
+// 单一底座）；system 双计去重（T6 实测结论：body.system 与头部 role=system 消息
+// 逐字重复，分组只按 messages 计一次，body.system 仅在无 system 消息时兜底）：
+//   system = role=system 消息：m×40→10 + 摘要×31（62 CJK）→62             = 72
+//     （body.system 的 S×100→25 与 系统提示×24→24 不再重复计入）
 //   tools  = 工具定义 JSON 序列化折算（245 字符→62）+（145 字符→37）      = 99
 //   history = 最后一条 user 之前的 user/assistant/tool 消息（20+50+100）  = 170
 //   currentTurn = 最后一条 user 起的当轮消息（20+30+60）                   = 110
-//   rawTotal = 500；锚点精确 inputTokens = 625 → scale = 1.25
-//   floor(121×1.25)=151, floor(99×1.25)=123, floor(170×1.25)=212, floor(110×1.25)=137（和 623）
-//   余 2 按最大余数补：tools(.75)→124、history(.5)→213（与 currentTurn 并列按组序取先）
-const MAIN_RAW = { system: 121, tools: 99, history: 170, currentTurn: 110 };
-const MAIN_RAW_TOTAL = 500;
+//   rawTotal = 451；锚点精确 inputTokens = 625 → scale = 625/451
+//   floor 值：system 45000/451→99(.778)、tools 61875/451→137(.195)、
+//   history 106250/451→235(.588)、currentTurn 68750/451→152(.439)（和 623）
+//   余 2 按最大余数补：system(.778)→100、history(.588)→236
+const MAIN_RAW = { system: 72, tools: 99, history: 170, currentTurn: 110 };
+const MAIN_RAW_TOTAL = 451;
 const MAIN_ANCHOR_INPUT = 625;
-const MAIN_SCALE = 1.25;
-const MAIN_CALIBRATED = { system: 151, tools: 124, history: 213, currentTurn: 137 };
+const MAIN_SCALE = 625 / 451;
+const MAIN_CALIBRATED = { system: 100, tools: 137, history: 236, currentTurn: 152 };
 
 async function callCompositionTool(deps, args = {}) {
   const { createCurrentSessionCompositionTool } = await import(

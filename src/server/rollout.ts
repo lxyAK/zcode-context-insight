@@ -1,5 +1,6 @@
 /**
- * rollout model-io JSONL 解析底座（T3 组成估算；T6 Context Browser / T10 Fleet 复用缝）。
+ * rollout model-io JSONL 解析底座（单一解析点：T3 组成估算、T6 请求明细 /
+ * Context Browser、T10 Fleet 均经 readRolloutFile 消费，P0-4 统一）。
  *
  * 结构契约（研究笔记 03 §7，逐行对照实测）：
  *  - 每行一个 JSON 对象 = 一次完整模型请求-响应记录；
@@ -27,6 +28,9 @@ export interface RolloutMessage {
   role: string;
   content: unknown;
   toolCalls?: unknown;
+  /** tool 结果消息携带的工具名/调用 ID（明细块级展示用，P0-4 统一底座补齐） */
+  toolName?: string;
+  toolCallId?: string;
 }
 
 /** 解析后的记录（index 为文件内 0 基行号，仅统计成功解析的行） */
@@ -34,8 +38,12 @@ export interface RolloutRecord {
   index: number;
   sessionId: string | null;
   requestId: string | null;
+  attempt: number | null;
   startedAt: string | null;
+  completedAt: string | null;
+  durationMs: number | null;
   querySource: string | null;
+  model: { modelId: string | null; providerId: string | null };
   messagesKind: string | null;
   messageOffset: number | null;
   messageCount: number | null;
@@ -44,12 +52,14 @@ export interface RolloutRecord {
   systemBlocks: string[];
   /** request.body.tools 原样（估算层做 JSON 序列化折算） */
   tools: unknown[];
+  /** request.toolNames（请求序列摘要的工具计数来源） */
+  toolNames: string[];
   usage: RolloutUsage | null;
 }
 
 /** 读取结果：失败携带机器可读原因（工具层据此降级，不抛错） */
 export type RolloutReadResult =
-  | { ok: true; records: RolloutRecord[] }
+  | { ok: true; records: RolloutRecord[]; parseSkipped: number }
   | { ok: false; reason: "rollout-not-found" | "rollout-read-failed" | "rollout-empty" };
 
 /** 已知 messagesKind 取值（tail 为实测补充，ADR-0002 未记录——见研究笔记 03 §7） */
@@ -108,6 +118,7 @@ function parseLine(line: string): Omit<RolloutRecord, "index"> | null {
   const request = (o.request ?? {}) as Record<string, unknown>;
   const body = (request.body ?? {}) as Record<string, unknown>;
   const response = (o.response ?? {}) as Record<string, unknown>;
+  const model = (o.model ?? {}) as Record<string, unknown>;
   const usageRaw = response.usage as Record<string, unknown> | undefined;
 
   const num = (v: unknown): number | null =>
@@ -137,6 +148,8 @@ function parseLine(line: string): Omit<RolloutRecord, "index"> | null {
             content: m.content ?? "",
           };
           if ("toolCalls" in m) msg.toolCalls = m.toolCalls;
+          if (typeof m.toolName === "string") msg.toolName = m.toolName;
+          if (typeof m.toolCallId === "string") msg.toolCallId = m.toolCallId;
           return msg;
         })
     : [];
@@ -154,19 +167,29 @@ function parseLine(line: string): Omit<RolloutRecord, "index"> | null {
   return {
     sessionId: str(o.sessionId),
     requestId: str(o.requestId),
+    attempt: num(o.attempt),
     startedAt: str(o.startedAt),
+    completedAt: str(o.completedAt),
+    durationMs: num(o.durationMs),
     querySource: str(o.querySource),
+    model: {
+      modelId: typeof model.modelId === "string" ? model.modelId : null,
+      providerId: typeof model.providerId === "string" ? model.providerId : null,
+    },
     messagesKind: str(request.messagesKind),
     messageOffset: num(request.messageOffset),
     messageCount: num(request.messageCount),
     messages,
     systemBlocks,
     tools: Array.isArray(body.tools) ? body.tools : [],
+    toolNames: Array.isArray(request.toolNames)
+      ? request.toolNames.filter((t): t is string => typeof t === "string")
+      : [],
     usage,
   };
 }
 
-/** 读取并逐行解析 rollout 文件（只读；坏行跳过，零可解析行按 rollout-empty 降级） */
+/** 读取并逐行解析 rollout 文件（只读；坏行跳过并计数，零可解析行按 rollout-empty 降级） */
 export function readRolloutFile(path: string): RolloutReadResult {
   let raw: string;
   try {
@@ -178,12 +201,14 @@ export function readRolloutFile(path: string): RolloutReadResult {
     return { ok: false, reason: "rollout-read-failed" };
   }
   const records: RolloutRecord[] = [];
+  let parseSkipped = 0;
   for (const line of raw.split("\n")) {
     const trimmed = line.trim();
     if (!trimmed) continue;
     const parsed = parseLine(trimmed);
     if (parsed) records.push({ ...parsed, index: records.length });
+    else parseSkipped++;
   }
   if (records.length === 0) return { ok: false, reason: "rollout-empty" };
-  return { ok: true, records };
+  return { ok: true, records, parseSkipped };
 }

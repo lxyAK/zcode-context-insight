@@ -72,14 +72,15 @@ describe("get_current_session_report（功能缝：直调 execute）", () => {
     });
     const c = payload.composition;
 
-    // 手算真值来源：make-fixtures.mjs buildMainRolloutLines 注释（T3 锚点 req-main-3）：
-    // Σraw=500，锚点 usage.inputTokens=625 → scale=1.25，
-    // 校准后 { system:151, tools:124, history:213, currentTurn:137 }，Σ=625
+    // 手算真值来源：make-fixtures.mjs buildMainRolloutLines 注释（T3 锚点 req-main-3，
+    // 统一估算口径见 composition.test.mjs：system 去重后 Σraw=451）：
+    // 锚点 usage.inputTokens=625 → scale=625/451，
+    // 校准后 { system:100, tools:137, history:236, currentTurn:152 }，Σ=625
     expect(c.estimated).toBe(true);
     expect(c.basis).toBe("rollout-full-request");
     expect(c.exactTotalTokens).toBe(625);
-    expect(c.groups).toEqual({ system: 151, tools: 124, history: 213, currentTurn: 137 });
-    expect(c.scaleFactor).toBe(1.25);
+    expect(c.groups).toEqual({ system: 100, tools: 137, history: 236, currentTurn: 152 });
+    expect(c.scaleFactor).toBe(625 / 451);
     expect(c.note).toContain("估算"); // ADR-0002：展示必须标注估算
   });
 

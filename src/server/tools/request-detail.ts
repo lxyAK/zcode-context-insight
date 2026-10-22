@@ -9,27 +9,26 @@
  * 口径（ADR-0002 / 研究笔记 03 §7）：
  *  - 组成估算只锚定 messagesKind=full 的请求快照；delta/tail（非 full）一律 snapshot=none
  *    不做估算——纯 delta 会话的请求显示"无快照"空态；
- *  - 估算为字符特征折算（ASCII 约 4 字符/token、CJK 约 1.5 字符/token），必须标注"估算"；
- *    精确总量始终用 response.usage 的 API 值，两者并存不冒充（scale=精确输入/估算合计，
- *    供锚点校准展示）；
- *  - 实测头部 system 消息与 request.body.system 逐字重复：分组只按 messages 数组计一次，
- *    body.system 仅在 messages 无 system 消息时兜底；工具定义取 request.body.tools。
+ *  - 估算复用单一底座（P0-4 统一）：行解析 = src/server/rollout.ts 的 readRolloutFile，
+ *    字符折算 = src/server/composition.ts 的 estimateTextTokens（ceil(ASCII/4) + CJK×1），
+ *    分组口径与 estimateRawComposition 一致（system 去重、当前轮=最后一条 user 起的非
+ *    system 消息）；本文件只在其上构建块级明细结构；
+ *  - 精确总量始终用 response.usage 的 API 值，估算与精确并存不冒充（scale=精确输入/
+ *    估算合计，供锚点校准展示）。
  *
  * 依赖注入缝：deps 允许显式指定 db / 心跳 / rollout 目录（测试与调试），
  * 缺 sessionId 时默认解析当前会话（心跳优先，兜底最近活跃 interactive，ADR-0003）。
  * rollout 缺文件/坏行容错（ADR-0001：文件被清理属预期，降级不抛错）。
- *
- * 边界：本文件自带最小 rollout 解析（单请求明细用途）；T3 的会话级组成估算若合入
- * 共享解析底座（src/server/rollout/），由 merge 阶段统一整合，避免两套并存。
  */
 import { z } from "zod";
-import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import type { ToolDefinition } from "../registry.ts";
 import { resolveDbPath, resolveHeartbeatPath, resolveRolloutDir } from "../paths.ts";
 import { classifyDbError, openReadonlyDatabase } from "../db.ts";
 import { readHeartbeat } from "../heartbeat.ts";
 import { resolveCurrentSession } from "../usage.ts";
+import { readRolloutFile, type RolloutRecord } from "../rollout.ts";
+import { estimateTextTokens } from "../composition.ts";
 
 /** 工具依赖（测试注入缝；缺省从环境与宿主默认路径解析） */
 export interface RequestDetailDeps {
@@ -39,36 +38,11 @@ export interface RequestDetailDeps {
 }
 
 // ---------------------------------------------------------------------------
-// 字符特征估算（ADR-0002）
+// 预览截断（明细只回结构化摘要，不外漏全文正文）
 // ---------------------------------------------------------------------------
 
-/** 预览截断上限（明细只回结构化摘要，不外漏全文正文） */
+/** 预览截断上限 */
 const PREVIEW_MAX_CHARS = 120;
-
-/** CJK 码位（统一表意/扩展/兼容/假名与 CJK 标点/全角形式）：按约 1.5 字符/token 折算 */
-function isCjkCodePoint(code: number): boolean {
-  return (
-    (code >= 0x3000 && code <= 0x30ff) ||
-    (code >= 0x3400 && code <= 0x4dbf) ||
-    (code >= 0x4e00 && code <= 0x9fff) ||
-    (code >= 0xf900 && code <= 0xfaff) ||
-    (code >= 0xff00 && code <= 0xffef)
-  );
-}
-
-/** 字符特征 token 估算：ceil(ASCII/4) + ceil(CJK×2/3) + 其余字符数（展示必须标注"估算"） */
-export function estimateTokens(text: string): number {
-  let ascii = 0;
-  let cjk = 0;
-  let other = 0;
-  for (const ch of text) {
-    const code = ch.codePointAt(0) ?? 0;
-    if (code <= 0x7f) ascii++;
-    else if (isCjkCodePoint(code)) cjk++;
-    else other++;
-  }
-  return Math.ceil(ascii / 4) + Math.ceil((cjk * 2) / 3) + other;
-}
 
 /** 预览文本：压缩空白后截断，避免面板载荷外漏全文 */
 function previewOf(text: string): string {
@@ -76,164 +50,31 @@ function previewOf(text: string): string {
 }
 
 // ---------------------------------------------------------------------------
-// rollout model-io JSONL 解析（容错：坏行跳过计数，字段漂移降级为 null）
+// rollout 读取（复用底座 readRolloutFile；此处只做请求序列语义的薄适配）
 // ---------------------------------------------------------------------------
 
-/** messages 数组元素（content 为字符串或 [{type,text}] 分块数组，实测 03 笔记 §7） */
-interface RolloutMessage {
-  role: string;
-  content: string | Array<{ type?: string; text?: string }>;
-  toolName?: string;
-  toolCallId?: string;
-}
+/** 请求序列读取结果（空文件按"可用但零请求"保留 T6 既有行为） */
+type RequestLineSource =
+  | { ok: true; lines: RolloutRecord[]; parseSkipped: number }
+  | { ok: false; reason: string };
 
-/** 单行请求记录（解析后的最小形状） */
-interface RolloutRequestLine {
-  index: number;
-  requestId: string;
-  attempt: number | null;
-  querySource: string | null;
-  modelId: string | null;
-  providerId: string | null;
-  startedAt: string | null;
-  completedAt: string | null;
-  durationMs: number | null;
-  messagesKind: string;
-  messageOffset: number | null;
-  messageCount: number | null;
-  messages: RolloutMessage[];
-  tools: Array<Record<string, unknown>>;
-  bodySystemTexts: string[];
-  toolNames: string[];
-  usage: Record<string, number> | null;
-}
-
-interface RolloutReadResult {
-  ok: true;
-  lines: RolloutRequestLine[];
-  parseSkipped: number;
-}
-
-/** 读取并解析 model-io-<sessionId>.jsonl；文件缺失或目录缺失 → rollout-not-found */
-function readRolloutRequests(rolloutDir: string, sessionId: string): RolloutReadResult | { ok: false; reason: string } {
-  const file = join(rolloutDir, `model-io-${sessionId}.jsonl`);
-  if (!existsSync(file)) return { ok: false, reason: "rollout-not-found" };
-  let raw: string;
-  try {
-    raw = readFileSync(file, "utf8");
-  } catch {
-    return { ok: false, reason: "rollout-not-found" };
+/**
+ * 读取会话的 rollout 请求行：底座解析 + 无 requestId 行计入跳过数
+ * （请求序列语义要求每行可按 requestId 定位，明细工具据此查找单行）。
+ */
+function readRolloutRequests(rolloutDir: string, sessionId: string): RequestLineSource {
+  const read = readRolloutFile(join(rolloutDir, `model-io-${sessionId}.jsonl`));
+  if (!read.ok) {
+    if (read.reason === "rollout-empty") return { ok: true, lines: [], parseSkipped: 0 };
+    return { ok: false, reason: read.reason };
   }
-
-  const lines: RolloutRequestLine[] = [];
-  let parseSkipped = 0;
-  let index = 0;
-  for (const rawLine of raw.split("\n")) {
-    if (!rawLine.trim()) continue; // 尾空行
-    let parsed: unknown;
-    try {
-      parsed = JSON.parse(rawLine);
-    } catch {
-      parseSkipped++; // 坏行容错：跳过并计数
-      continue;
-    }
-    const line = parseRolloutLine(parsed, index);
-    if (line) {
-      lines.push(line);
-      index++;
-    } else {
-      parseSkipped++;
-    }
-  }
+  const lines = read.records.filter((r) => typeof r.requestId === "string" && r.requestId.length > 0);
+  const parseSkipped = read.parseSkipped + (read.records.length - lines.length);
   return { ok: true, lines, parseSkipped };
 }
 
-/** 逐字段容错解析一行（缺字段/类型漂移降级为 null，不含 requestId 的行整行丢弃） */
-function parseRolloutLine(parsed: unknown, index: number): RolloutRequestLine | null {
-  if (typeof parsed !== "object" || parsed === null) return null;
-  const root = parsed as Record<string, unknown>;
-  const requestId = typeof root.requestId === "string" ? root.requestId : null;
-  if (!requestId) return null;
-
-  const request = asRecord(root.request);
-  const body = asRecord(request?.body);
-  const response = asRecord(root.response);
-  const model = asRecord(root.model);
-
-  return {
-    index,
-    requestId,
-    attempt: typeof root.attempt === "number" ? root.attempt : null,
-    querySource: typeof root.querySource === "string" ? root.querySource : null,
-    modelId: typeof model?.modelId === "string" ? model.modelId : null,
-    providerId: typeof model?.providerId === "string" ? model.providerId : null,
-    startedAt: typeof root.startedAt === "string" ? root.startedAt : null,
-    completedAt: typeof root.completedAt === "string" ? root.completedAt : null,
-    durationMs: typeof root.durationMs === "number" ? root.durationMs : null,
-    messagesKind: typeof request?.messagesKind === "string" ? request.messagesKind : "",
-    messageOffset: typeof request?.messageOffset === "number" ? request.messageOffset : null,
-    messageCount: typeof request?.messageCount === "number" ? request.messageCount : null,
-    messages: normalizeMessages(request?.messages),
-    tools: Array.isArray(body?.tools) ? (body.tools.filter(asRecord) as Array<Record<string, unknown>>) : [],
-    bodySystemTexts: Array.isArray(body?.system)
-      ? body.system
-          .map((b) => asRecord(b))
-          .filter((b): b is Record<string, unknown> => b !== null)
-          .map((b) => (typeof b.text === "string" ? b.text : ""))
-      : [],
-    toolNames: Array.isArray(request?.toolNames)
-      ? request.toolNames.filter((t): t is string => typeof t === "string")
-      : [],
-    usage: normalizeUsage(asRecord(response?.usage)),
-  };
-}
-
-function asRecord(value: unknown): Record<string, unknown> | null {
-  return typeof value === "object" && value !== null && !Array.isArray(value)
-    ? (value as Record<string, unknown>)
-    : null;
-}
-
-function normalizeMessages(value: unknown): RolloutMessage[] {
-  if (!Array.isArray(value)) return [];
-  const out: RolloutMessage[] = [];
-  for (const item of value) {
-    const rec = asRecord(item);
-    if (!rec || typeof rec.role !== "string") continue;
-    const content: RolloutMessage["content"] =
-      typeof rec.content === "string"
-        ? rec.content
-        : Array.isArray(rec.content)
-          ? rec.content
-              .map((p) => asRecord(p))
-              .filter((p): p is Record<string, unknown> => p !== null)
-              .map((p) => ({
-                type: typeof p.type === "string" ? p.type : "unknown",
-                text: typeof p.text === "string" ? p.text : "",
-              }))
-          : "";
-    out.push({
-      role: rec.role,
-      content,
-      toolName: typeof rec.toolName === "string" ? rec.toolName : undefined,
-      toolCallId: typeof rec.toolCallId === "string" ? rec.toolCallId : undefined,
-    });
-  }
-  return out;
-}
-
-function normalizeUsage(usage: Record<string, unknown> | null): Record<string, number> | null {
-  if (!usage) return null;
-  const out: Record<string, number> = {};
-  for (const key of ["inputTokens", "outputTokens", "totalTokens", "cacheReadTokens", "cacheWriteTokens"]) {
-    const v = usage[key];
-    if (typeof v === "number") out[key] = v;
-  }
-  return Object.keys(out).length > 0 ? out : null;
-}
-
 // ---------------------------------------------------------------------------
-// 组成明细构建（四分组 + 块级扁平序）
+// 组成明细构建（四分组 + 块级扁平序；分组口径与底座 estimateRawComposition 一致）
 // ---------------------------------------------------------------------------
 
 type GroupKey = "system" | "tools" | "history" | "current";
@@ -283,10 +124,12 @@ interface Composition {
 
 /**
  * 构建 full 请求的组成明细。非 full 请求返回 null（ADR-0002：delta/tail 不作基准）。
+ * 分组口径与底座 estimateRawComposition 一致：system=role=system 消息（body.system
+ * 仅在 messages 无 system 消息时兜底）；当前轮=最后一条 user 及其后的非 system 消息。
  * 顺序规则：messages 数组顺序即请求内顺序；工具定义插在首条非 system 消息之前
  * （对应 API 报文 system → tools → messages 的逻辑顺序）；尾部 system 提醒保留其实际位置。
  */
-function buildComposition(line: RolloutRequestLine): Composition | null {
+function buildComposition(line: RolloutRecord): Composition | null {
   if (line.messagesKind !== "full") return null;
 
   const messages = line.messages;
@@ -300,14 +143,14 @@ function buildComposition(line: RolloutRequestLine): Composition | null {
 
   // 兜底：messages 无 system 消息但 body.system 有定义（防御性，真实形态两处逐字重复）
   const hasSystemMessage = messages.some((m) => m.role === "system");
-  if (!hasSystemMessage && line.bodySystemTexts.length > 0) {
-    for (const text of line.bodySystemTexts) {
+  if (!hasSystemMessage && line.systemBlocks.length > 0) {
+    for (const text of line.systemBlocks) {
       blocks.push({
         seq: seq++,
         groupKey: "system",
         kind: "message",
         role: "system",
-        estimatedTokens: estimateTokens(text),
+        estimatedTokens: estimateTextTokens(text),
         preview: previewOf(text),
       });
     }
@@ -316,14 +159,18 @@ function buildComposition(line: RolloutRequestLine): Composition | null {
   const pushToolBlocks = () => {
     for (const def of line.tools) {
       const json = safeStringify(def);
-      const name = typeof def.name === "string" ? def.name : "(unnamed)";
-      const description = typeof def.description === "string" ? def.description : "";
+      const name = typeof (def as Record<string, unknown>).name === "string"
+        ? (def as Record<string, unknown>).name as string
+        : "(unnamed)";
+      const description = typeof (def as Record<string, unknown>).description === "string"
+        ? (def as Record<string, unknown>).description as string
+        : "";
       blocks.push({
         seq: seq++,
         groupKey: "tools",
         kind: "tool",
         name,
-        estimatedTokens: estimateTokens(json),
+        estimatedTokens: estimateTextTokens(json),
         preview: previewOf(description || json),
       });
     }
@@ -336,8 +183,9 @@ function buildComposition(line: RolloutRequestLine): Composition | null {
       pushToolBlocks(); // 头部 system 提示结束、首条会话消息之前
       toolsInserted = true;
     }
+    // 分组口径与底座一致：system → system；最后一条 user 起的非 system → 当前轮
     const groupKey: GroupKey =
-      m.role === "system" ? "system" : i === lastUserIndex ? "current" : "history";
+      m.role === "system" ? "system" : lastUserIndex >= 0 && i >= lastUserIndex ? "current" : "history";
 
     const block: MessageBlock = {
       seq: seq++,
@@ -350,13 +198,19 @@ function buildComposition(line: RolloutRequestLine): Composition | null {
     if (m.toolName !== undefined) block.toolName = m.toolName;
     if (m.toolCallId !== undefined) block.toolCallId = m.toolCallId;
 
-    if (typeof m.content === "string") {
-      block.estimatedTokens = estimateTokens(m.content);
-      block.preview = previewOf(m.content);
-    } else if (Array.isArray(m.content)) {
-      const parts = m.content.map((p) => {
-        const text = p.text ?? "";
-        return { type: p.type ?? "unknown", estimatedTokens: estimateTokens(text), preview: previewOf(text) };
+    const content = m.content;
+    if (typeof content === "string") {
+      block.estimatedTokens = estimateTextTokens(content);
+      block.preview = previewOf(content);
+    } else if (Array.isArray(content)) {
+      const parts = content.map((part) => {
+        const text = typeof (part as Record<string, unknown>)?.text === "string"
+          ? ((part as Record<string, unknown>).text as string)
+          : "";
+        const type = typeof (part as Record<string, unknown>)?.type === "string"
+          ? ((part as Record<string, unknown>).type as string)
+          : "unknown";
+        return { type, estimatedTokens: estimateTextTokens(text), preview: previewOf(text) };
       });
       block.parts = parts;
       block.estimatedTokens = parts.reduce((sum, p) => sum + p.estimatedTokens, 0);
@@ -424,13 +278,13 @@ function resolveSessionId(
 }
 
 /** 请求序列行载荷（list 工具输出形状） */
-function toRequestSummary(line: RolloutRequestLine): Record<string, unknown> {
+function toRequestSummary(line: RolloutRecord): Record<string, unknown> {
   return {
     index: line.index,
     requestId: line.requestId,
     attempt: line.attempt,
     querySource: line.querySource,
-    model: { modelId: line.modelId, providerId: line.providerId },
+    model: { modelId: line.model.modelId, providerId: line.model.providerId },
     startedAt: line.startedAt,
     completedAt: line.completedAt,
     durationMs: line.durationMs,
@@ -442,7 +296,7 @@ function toRequestSummary(line: RolloutRequestLine): Record<string, unknown> {
   };
 }
 
-function countKinds(lines: RolloutRequestLine[]): Record<string, number> {
+function countKinds(lines: RolloutRecord[]): Record<string, number> {
   const counts = { total: lines.length, full: 0, delta: 0, tail: 0 };
   for (const line of lines) {
     if (line.messagesKind === "full") counts.full++;

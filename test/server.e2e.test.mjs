@@ -391,7 +391,7 @@ describe("MCP server e2e：get_current_session_composition（T3）", () => {
       expect(payload.anchor.requestId).toBe("req-main-3");
       expect(payload.exactTotalTokens).toBe(625);
       expect(payload.composition.estimated).toBe(true);
-      expect(payload.composition.calibrated).toEqual({ system: 151, tools: 124, history: 213, currentTurn: 137 });
+      expect(payload.composition.calibrated).toEqual({ system: 100, tools: 137, history: 236, currentTurn: 152 });
       // 锚点校准不变量：Σcalibrated === 精确锚点
       const sum = Object.values(payload.composition.calibrated).reduce((a, b) => a + b, 0);
       expect(sum).toBe(payload.exactTotalTokens);
