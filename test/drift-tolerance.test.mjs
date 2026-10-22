@@ -132,6 +132,7 @@ describe("DB schema 漂移：缺表 / 缺列下全部 13 个工具降级而非�
     const { createCurrentSessionUsageTool } = await import("../src/server/tools/get_current_session_usage.ts");
     const { createCurrentSessionCompositionTool } = await import("../src/server/tools/get_current_session_composition.ts");
     const { createFleetTreeTool } = await import("../src/server/tools/get_fleet_tree.ts");
+    const { createListSessionRequestsTool, createGetRequestDetailTool } = await import("../src/server/tools/request-detail.ts");
     const noHeartbeatDeps = { dbPath: join(driftDir, "no-session.sqlite"), heartbeatPath: join(fixtureDir, "absent.json"), rolloutDir: fixtureRolloutDir };
 
     const usage = JSON.parse((await createCurrentSessionUsageTool(noHeartbeatDeps).execute({})).content[0].text);
@@ -146,6 +147,15 @@ describe("DB schema 漂移：缺表 / 缺列下全部 13 个工具降级而非�
     const fleet = JSON.parse((await createFleetTreeTool(noHeartbeatDeps).execute({})).content[0].text);
     expect(fleet.available).toBe(false);
     expect(fleet.reason).toBe("schema-drift:missing-table:session");
+
+    // 请求序列/明细（T6 自包含解析侧）的兜底识别路径同样分类降级
+    const list = JSON.parse((await createListSessionRequestsTool(noHeartbeatDeps).execute({})).content[0].text);
+    expect(list.available).toBe(false);
+    expect(list.reason).toBe("schema-drift:missing-table:session");
+
+    const detail = JSON.parse((await createGetRequestDetailTool(noHeartbeatDeps).execute({ requestId: "req-main-3" })).content[0].text);
+    expect(detail.available).toBe(false);
+    expect(detail.reason).toBe("schema-drift:missing-table:session");
   });
 });
 
