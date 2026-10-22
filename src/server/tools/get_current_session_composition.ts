@@ -16,7 +16,7 @@ import { join } from "node:path";
 import { z } from "zod";
 import type { ToolDefinition } from "../registry.ts";
 import { resolveDbPath, resolveHeartbeatPath, resolveRolloutDir } from "../paths.ts";
-import { openReadonlyDatabase } from "../db.ts";
+import { classifyDbError, openReadonlyDatabase } from "../db.ts";
 import { readHeartbeat } from "../heartbeat.ts";
 import { resolveCurrentSession } from "../usage.ts";
 import { countByKind, pickFullAnchor, pickLatestInputTokens, readRolloutFile } from "../rollout.ts";
@@ -56,7 +56,8 @@ export function createCurrentSessionCompositionTool(
 function collectCurrentSessionComposition(
   deps: CurrentSessionCompositionDeps,
 ): Record<string, unknown> {
-  // 1) 会话识别：心跳精确优先；无心跳走 db 最近活跃 interactive 兜底（ADR-0003）
+  // 1) 会话识别：心跳精确优先；无心跳走 db 最近活跃 interactive 兜底（ADR-0003）。
+  //    兜底查询遇 schema 漂移（如 session 表缺失）按 T13 分类降级，不抛错
   const heartbeatPath = deps.heartbeatPath ?? resolveHeartbeatPath();
   let session: { id: string; source: "heartbeat" | "inferred" } | null = null;
   const heartbeat = readHeartbeat(heartbeatPath);
@@ -68,6 +69,15 @@ function collectCurrentSessionComposition(
       try {
         const current = resolveCurrentSession(opened.db, ""); // 心跳路径传空 → 走推断兜底分支
         if (current) session = { id: current.id, source: current.source };
+      } catch (err) {
+        return {
+          available: false,
+          reason: classifyDbError(err),
+          session: null,
+          exactTotalTokens: null,
+          anchor: null,
+          composition: null,
+        };
       } finally {
         opened.db.close();
       }

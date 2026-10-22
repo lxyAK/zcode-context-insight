@@ -52,6 +52,13 @@ describe("插件 manifest（.zcode-plugin/plugin.json）", () => {
 describe("/context 斜杠命令（commands/context.md，宿主装载的真实输入）", () => {
   const commandPath = "commands/context.md";
 
+  /**
+   * 读命令文件并归一化行尾（T13 双保险）：.gitattributes 已强制 commands/*.md 为 LF，
+   * 但历史检出（autocrlf=true 物化 CRLF）在未重新检出前仍可能残留 CRLF——
+   * front-matter 断言按 LF 结构进行，此处统一归一化后再断言。
+   */
+  const readCommand = () => readFileSync(join(repoRoot, commandPath), "utf8").replace(/\r\n/g, "\n");
+
   it("manifest 声明 commands 组件目录指向 commands/", () => {
     const manifest = readJson(".zcode-plugin/plugin.json");
     expect(manifest.commands).toBe("commands");
@@ -63,7 +70,7 @@ describe("/context 斜杠命令（commands/context.md，宿主装载的真实输
   });
 
   it("front-matter 含扁平单行 description（缺 description 且空正文的命令会被宿主丢弃）", () => {
-    const raw = readFileSync(join(repoRoot, commandPath), "utf8");
+    const raw = readCommand();
     expect(raw.startsWith("---\n")).toBe(true);
     const end = raw.indexOf("\n---\n", 4);
     expect(end).toBeGreaterThan(0);
@@ -76,7 +83,7 @@ describe("/context 斜杠命令（commands/context.md，宿主装载的真实输
   });
 
   it("正文指示模型调用 get_current_session_report 工具（兜底设计：不用 shell 注入会话 ID）", () => {
-    const raw = readFileSync(join(repoRoot, commandPath), "utf8");
+    const raw = readCommand();
     const body = raw.slice(raw.indexOf("\n---\n", 4) + 5);
     expect(body).toContain("get_current_session_report");
     // 摘要三要素都要指示输出：精确用量 / 组成估算（标注估算） / 压缩提醒
@@ -86,7 +93,7 @@ describe("/context 斜杠命令（commands/context.md，宿主装载的真实输
   });
 
   it("正文不含动态 shell 展开（!`cmd` 被 zcode-guide 0.3.0 明文拒绝，ADR-0003 修订）", () => {
-    const raw = readFileSync(join(repoRoot, commandPath), "utf8");
+    const raw = readCommand();
     expect(raw).not.toMatch(/!\`/); // inline dynamic shell
     expect(raw).not.toMatch(/^!``/m); // fenced ! 块
   });

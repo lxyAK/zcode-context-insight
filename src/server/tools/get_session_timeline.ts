@@ -10,7 +10,7 @@
 import { z } from "zod";
 import type { ToolDefinition } from "../registry.ts";
 import { resolveDbPath, resolveHeartbeatPath } from "../paths.ts";
-import { openReadonlyDatabase } from "../db.ts";
+import { classifyDbError, openReadonlyDatabase } from "../db.ts";
 import { fetchCompactionEvents, fetchRequestTimeline, getSessionRow, resolveCurrentSession } from "../usage.ts";
 
 /** 工具依赖（测试注入缝；缺省从环境与宿主默认路径解析） */
@@ -83,10 +83,10 @@ function collectSessionTimeline(
       compactions,
     };
   } catch (err) {
-    // schema 漂移（缺表缺列）等查询期异常：降级而非炸面板（细粒度探测见 T13）
+    // schema 漂移（缺表缺列）/BUSY 等查询期异常：分类降级而非炸面板（classifyDbError，T13）
     return {
       available: false,
-      reason: `query-failed: ${err instanceof Error ? err.message : String(err)}`,
+      reason: classifyDbError(err),
       session: null,
       requests: null,
       compactions: null,

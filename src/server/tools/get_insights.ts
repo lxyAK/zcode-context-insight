@@ -8,7 +8,7 @@
 import { z } from "zod";
 import type { ToolDefinition } from "../registry.ts";
 import { resolveDbPath } from "../paths.ts";
-import { openReadonlyDatabase } from "../db.ts";
+import { classifyDbError, openReadonlyDatabase } from "../db.ts";
 import { collectInsights } from "../insights.ts";
 
 export interface InsightsDeps {
@@ -53,10 +53,10 @@ function collectInsightsSafe(deps: InsightsDeps, args: Record<string, unknown>):
   try {
     return collectInsights(opened.db, args) as unknown as Record<string, unknown>;
   } catch (err) {
-    // schema 漂移（缺表缺列）等查询期异常：降级而非炸面板（细粒度探测见 T13）
+    // schema 漂移（缺表缺列）/BUSY 等查询期异常：分类降级而非炸面板（classifyDbError，T13）
     return {
       available: false,
-      reason: `query-failed: ${err instanceof Error ? err.message : String(err)}`,
+      reason: classifyDbError(err),
       anchorTime: null, kpi: null, trend: null, projects: null, sessions: null,
     };
   } finally {

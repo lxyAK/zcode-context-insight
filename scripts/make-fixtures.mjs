@@ -3,6 +3,8 @@
  *  - test/fixtures/db.sqlite：结构与真实宿主库 schema 一致（DDL 对照研究笔记 03 §2-§5），
  *    行集为手工设计的最小集，期望值见 test/session-usage.test.mjs 的手算常量。
  *  - test/fixtures/heartbeat.json：手工静态文件，直接落仓，不经本脚本。
+ *  - test/fixtures/drift/*.sqlite（T13）：基于完整库派生的 schema 漂移变体
+ *    （缺表/缺列/坏 JSON 行），模拟宿主数据演进，见 writeDriftVariants 注释。
  *  - test/fixtures/rollout/model-io-<sessionId>.jsonl：rollout JSONL 夹具，行结构对照研究
  *    笔记 03 §7（真实文件实测：头部 system 消息与 body.system 逐字重复；尾部可再出现
  *    system 消息；tool/user 消息 content 为字符串；assistant 为 [{type,text}] 分块数组）。
@@ -17,7 +19,7 @@
  * 幂等：每次删除重建。
  */
 import { DatabaseSync } from "node:sqlite";
-import { mkdir, rm, writeFile } from "node:fs/promises";
+import { copyFile, mkdir, rm, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -25,6 +27,7 @@ const repoRoot = dirname(dirname(fileURLToPath(import.meta.url)));
 const fixtureDir = join(repoRoot, "test", "fixtures");
 const dbPath = join(fixtureDir, "db.sqlite");
 const rolloutDir = join(fixtureDir, "rollout");
+const driftDir = join(fixtureDir, "drift");
 
 /** 夹具时间基准（固定毫秒，测试不依赖墙钟） */
 const T0 = 1792600000000;
@@ -850,4 +853,60 @@ db.close();
 
 await writeRolloutFixtures();
 
-console.log(`夹具已生成: ${dbPath} + ${rolloutDir}{${S_MAIN.slice(0, 18)}…, ${S_OLD.slice(0, 18)}…, ${S_SUB.slice(0, 22)}…, ${S_BROWSER.slice(0, 18)}…}`);
+await writeDriftVariants();
+
+console.log(`夹具已生成: ${dbPath} + ${rolloutDir}{${S_MAIN.slice(0, 18)}…, ${S_OLD.slice(0, 18)}…, ${S_SUB.slice(0, 22)}…, ${S_BROWSER.slice(0, 18)}…} + ${driftDir}`);
+
+// ============================================================================
+// DB schema 漂移变体（T13）：基于完整 db.sqlite 派生，模拟宿主数据演进的真实漂移场景。
+// 每个变体注释说明它模拟的真实漂移；期望行为见 test/drift-tolerance.test.mjs：
+// 所有工具在每种漂移下返回降级结果（available:false + 机器可读 reason）或
+// 行级容错（坏行跳过）而非抛异常。
+// ============================================================================
+async function writeDriftVariants() {
+  await rm(driftDir, { recursive: true, force: true });
+  await mkdir(driftDir, { recursive: true });
+
+  /** 从完整库复制一份并以读写连接做变异（只写仓库内夹具，不触碰 ~/.zcode）。
+   *  node:sqlite 默认启用外键约束，DROP 被引用表会被拒——变异连接先关 FK
+   *  （只影响本夹具连接；真实库为宿主所有，本脚本从不触碰）。 */
+  const variant = async (name, note, mutate) => {
+    const p = join(driftDir, name);
+    await copyFile(dbPath, p);
+    const vdb = new DatabaseSync(p);
+    try {
+      vdb.exec("PRAGMA foreign_keys = OFF");
+      mutate(vdb);
+    } finally {
+      vdb.close();
+    }
+    console.log(`漂移夹具已生成: ${p}（${note}）`);
+  };
+
+  // 缺表：model_usage —— 宿主未来版本重命名/拆分用量表（DDL 演进）
+  await variant("no-model-usage.sqlite", "缺 model_usage 表", (v) => {
+    v.exec("DROP TABLE model_usage");
+  });
+  // 缺表：part —— 宿主把消息部件表迁走或改名（如 v5 数据布局调整）
+  await variant("no-part.sqlite", "缺 part 表", (v) => {
+    v.exec("DROP TABLE part");
+  });
+  // 缺表：session —— 会话表结构重组（如会话改存独立库）
+  await variant("no-session.sqlite", "缺 session 表", (v) => {
+    v.exec("DROP TABLE session");
+  });
+  // 缺列：model_usage 少 input_tokens —— 列被重命名（如改 input_tokens_v2）
+  // 注意 SQLite 对 DROP COLUMN 有限制（主键/索引列不可删），input_tokens 带
+  // NOT NULL DEFAULT 0 无索引，可删——正好模拟"列消失"的漂移形态。
+  await variant("missing-input-tokens.sqlite", "model_usage 缺 input_tokens 列", (v) => {
+    v.exec("ALTER TABLE model_usage DROP COLUMN input_tokens");
+  });
+  // 行级漂移：part.data 非法 JSON —— 宿主写一半崩溃或 data 格式演进。
+  // 只写坏 S_MAIN 的自动压缩行（part_fixture_compact_1）与一条工具行，
+  // 其余行（含 S_MAIN 的手动压缩 part_t7_compact_2、全部 timeline/tool 行）保持
+  // 合法——期望行为是"坏行跳过、好行照常返回"，而非整查询失败。
+  await variant("bad-part-json.sqlite", "part.data 含非法 JSON 行", (v) => {
+    v.prepare(`UPDATE part SET data = ? WHERE id IN ('part_fixture_compact_1', 'part_t7_tool_read_1')`)
+      .run("{{not-json：模拟宿主写一半崩溃的 part.data");
+  });
+}

@@ -1067,3 +1067,50 @@ describe("Fleet 代理网络树（get_fleet_tree → 树形渲染 + 节点卡片
     const root = await mountFleet(host.target, "代理网络暂不可用");
   });
 });
+
+// ============================================================================
+// T13 健壮性：db 被锁 / schema 漂移等错误空态 reason 的面板渲染（复用既有降级链路）。
+// 服务端在漂移/锁定下返回 available:false + 机器可读 reason（db-busy /
+// schema-drift:missing-table:...，见 test/drift-tolerance.test.mjs），此处断言
+// 面板把 reason 呈现给用户且导航不卡死——不白屏即验收。
+
+describe("T13 错误空态：db 被锁 / schema 漂移的面板渲染（mock 桥）", () => {
+  beforeEach(() => {
+    document.body.innerHTML = '<div id="root">Loading…</div>';
+  });
+
+  it("Insights 页：reason=db-busy（宿主写事务持锁）渲染错误空态，导航仍可用", async () => {
+    const host = createMockHost(window, {
+      toolResults: defaultTools({
+        get_insights: text({ available: false, reason: "db-busy", kpi: null, trend: null, projects: null, sessions: null }),
+      }),
+    });
+    await mountPanel({ win: window, target: host.target });
+    const root = document.getElementById("root");
+    await waitFor(() => root.textContent.includes("暂不可用"));
+    expect(root.textContent).toContain("db-busy");
+
+    const ctxBtn = [...root.querySelectorAll(".zci-nav button")].find((b) => b.textContent === "Context");
+    ctxBtn.click();
+    await waitFor(() => document.getElementById("root").textContent.includes("mock-greeting"));
+  });
+
+  it("Context 页：reason=schema-drift:missing-table:model_usage 渲染错误空态，概览不受影响", async () => {
+    const host = createMockHost(window, {
+      toolResults: defaultTools({
+        get_current_session_usage: text({
+          available: false,
+          reason: "schema-drift:missing-table:model_usage",
+          session: null,
+          usage: null,
+        }),
+      }),
+    });
+    await mountPanel({ win: window, target: host.target });
+    [...document.querySelectorAll(".zci-nav button")].find((b) => b.textContent === "Context").click();
+    await waitFor(() => document.getElementById("root").textContent.includes("mock-greeting"));
+    const root = document.getElementById("root");
+    expect(root.textContent).toContain("用量暂不可用");
+    expect(root.textContent).toContain("schema-drift:missing-table:model_usage");
+  });
+});

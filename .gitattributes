@@ -2,3 +2,6 @@
 *.sh text eol=lf
 # rollout 夹具为 JSONL（宿主真实格式即 LF），保持 LF 防止检出时被改写成 CRLF
 *.jsonl text eol=lf
+# 斜杠命令 front-matter 契约按 LF 断言；autocrlf=true 的 Windows 检出会把 LF 物化为
+# CRLF 导致 plugin-contract 断言失败（T11 合并代理实证），强制 LF（T13 顺手修复）
+commands/*.md text eol=lf
