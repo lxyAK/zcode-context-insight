@@ -1,7 +1,8 @@
 /**
- * 面板装配层：ui/initialize 握手 → callServerTool(get_overview / get_current_session_usage) → 渲染。
- * 页面骨架（页头 + 概览区 + 当前会话用量区）在此；后续工单的页面（Insights / Context 仪表盘 / Fleet）
- * 以新文件加入并在 renderOverview 处替换/扩展，不动桥协议层。
+ * 面板装配层：ui/initialize 握手 → callServerTool(get_overview / get_current_session_usage /
+ * get_activity_insights) → 渲染。页面骨架（页头 + 概览区 + 当前会话用量区 + Insights 活跃区）
+ * 在此；后续工单的页面（Insights 页注册表 / Context 仪表盘 / Fleet）以新文件加入并在
+ * renderOverview 处替换/扩展，不动桥协议层。
  */
 
 /** 当前会话用量载荷（get_current_session_usage 的 structuredContent 形状） */
@@ -25,6 +26,8 @@ interface UsagePayload {
 import pkg from "../../package.json";
 import { BridgeClient, PostMessageTransport } from "./bridge.ts";
 import type { PostTarget } from "./bridge.ts";
+import { renderActivitySection } from "./views/activity.ts";
+import type { ActivityPayload } from "./views/activity.ts";
 
 /** MCP Apps 协议版本（研究笔记 02 §2，与官方面板一致） */
 export const PROTOCOL_VERSION = "2026-01-26";
@@ -86,7 +89,20 @@ export async function mountPanel(opts: MountOptions): Promise<void> {
     usage = null; // 桥错误 → 降级提示
   }
 
-  renderOverview(container, init, JSON.parse(textBlock.text), usage);
+  // Insights 活跃数据（T9）：独立 try/catch，失败只降级活跃区
+  let activity: ActivityPayload | null = null;
+  try {
+    const activityResult = (await bridge.request("tools/call", {
+      name: "get_activity_insights",
+      arguments: {},
+    })) as { content?: Array<{ type: string; text?: string }> };
+    const activityText = activityResult.content?.find((c) => c.type === "text")?.text;
+    activity = activityText ? (JSON.parse(activityText) as ActivityPayload) : null;
+  } catch {
+    activity = null; // 桥错误 → 降级提示
+  }
+
+  renderOverview(container, init, JSON.parse(textBlock.text), usage, activity);
 }
 
 function el(
@@ -106,6 +122,7 @@ function renderOverview(
   init: { hostInfo?: { name?: string; version?: string } },
   payload: { plugin?: string; version?: string; server?: string; greeting?: string },
   usage: UsagePayload | null,
+  activity: ActivityPayload | null,
 ): void {
   const doc = container.ownerDocument;
   container.replaceChildren();
@@ -131,7 +148,7 @@ function renderOverview(
 
   const footer = el(doc, "footer", "zci-footer", "骨架就绪：后续工单将在此装载 Insights / Context 仪表盘 / Fleet 页面。");
 
-  container.append(header, section, renderUsageSection(doc, usage, kv), footer);
+  container.append(header, section, renderUsageSection(doc, usage, kv), renderActivitySection(doc, activity), footer);
 }
 
 /** 当前会话精确用量区（T2）：数字 + 识别来源标注（心跳精确 / 推断）；不可用时降级提示 */
