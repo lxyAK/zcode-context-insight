@@ -342,3 +342,149 @@ describe("面板组成条（mock 桥）", () => {
     expect(root.textContent).toContain("组成暂不可用");
   });
 });
+
+const STATS_RESULT = (session, stats) => ({
+  content: [
+    {
+      type: "text",
+      text: JSON.stringify({ available: true, session, stats }),
+    },
+  ],
+});
+
+// 与 get_session_stats 夹具口径一致的 mock 载荷（真值来源：test/session-stats.test.mjs 手算）
+const MOCK_STATS = {
+  requests: 6,
+  cacheHitRate: 0.85,
+  contextExceededCount: 1,
+  inputTokens: 4000,
+  outputTokens: 405,
+  reasoningTokens: 50,
+  cacheReadTokens: 3400,
+  cacheWriteTokens: 100,
+  computedTotalTokens: 4405,
+  ttftCount: 5,
+  ttftP50Ms: 900,
+  ttftP95Ms: 1500,
+  retryCount: 2,
+};
+
+/** 按标签取统计卡的值节点文本（断言卡片的 label→value 邻近关系，而非全文模糊匹配） */
+function statValue(root, label) {
+  const card = [...root.querySelectorAll(".zci-stat")].find(
+    (c) => c.querySelector(".zci-stat-label")?.textContent === label,
+  );
+  return card?.querySelector(".zci-stat-value")?.textContent;
+}
+
+describe("统计卡（get_session_stats → Context/Token/Timing 三组卡）", () => {
+  beforeEach(() => {
+    document.body.innerHTML = '<div id="root">Loading…</div>';
+  });
+
+  it("三组卡渲染：Context/Token/Timing，命中率/分位数/计数按口径格式化", async () => {
+    const host = createMockHost(window, {
+      toolResults: {
+        get_overview: OVERVIEW_RESULT,
+        get_session_stats: STATS_RESULT(HEARTBEAT_SESSION, MOCK_STATS),
+      },
+    });
+    await mountPanel({ win: window, target: host.target });
+    const root = document.getElementById("root");
+
+    // 发出了统计工具调用
+    const statsCall = host.received.find(
+      (m) => m.method === "tools/call" && m.params?.name === "get_session_stats",
+    );
+    expect(statsCall).toBeTruthy();
+
+    // 三组标题（工单命名）
+    expect(root.textContent).toContain("Context Stats");
+    expect(root.textContent).toContain("Token Stats");
+    expect(root.textContent).toContain("Timing Stats");
+
+    // Context Stats：命中率 0.85 → 85.0%；超限计数原样
+    expect(statValue(root, "缓存命中率")).toBe("85.0%");
+    expect(statValue(root, "上下文超限")).toBe("1");
+
+    // Token Stats：token 数值原样（服务端口径 4000/405/3400/100/4405）
+    expect(statValue(root, "输入 token")).toBe("4000");
+    expect(statValue(root, "输出 token")).toBe("405");
+    expect(statValue(root, "缓存读 token")).toBe("3400");
+    expect(statValue(root, "缓存写 token")).toBe("100");
+    expect(statValue(root, "总量 token")).toBe("4405");
+
+    // Timing Stats：毫秒带单位，计数原样
+    expect(statValue(root, "TTFT p50")).toBe("900 ms");
+    expect(statValue(root, "TTFT p95")).toBe("1500 ms");
+    expect(statValue(root, "重试")).toBe("2");
+    expect(statValue(root, "请求数")).toBe("6");
+  });
+
+  it("无数据（requests=0）：量值与比率/分位数显示占位 '—' 而非 0，计数显示真 0", async () => {
+    const host = createMockHost(window, {
+      toolResults: {
+        get_overview: OVERVIEW_RESULT,
+        get_session_stats: STATS_RESULT(HEARTBEAT_SESSION, {
+          requests: 0,
+          cacheHitRate: null,
+          contextExceededCount: 0,
+          inputTokens: 0,
+          outputTokens: 0,
+          reasoningTokens: 0,
+          cacheReadTokens: 0,
+          cacheWriteTokens: 0,
+          computedTotalTokens: 0,
+          ttftCount: 0,
+          ttftP50Ms: null,
+          ttftP95Ms: null,
+          retryCount: 0,
+        }),
+      },
+    });
+    await mountPanel({ win: window, target: host.target });
+    const root = document.getElementById("root");
+
+    // 工单口径：无数据项显示占位而非 0
+    expect(statValue(root, "缓存命中率")).toBe("—");
+    expect(statValue(root, "TTFT p50")).toBe("—");
+    expect(statValue(root, "TTFT p95")).toBe("—");
+    expect(statValue(root, "输入 token")).toBe("—");
+    expect(statValue(root, "总量 token")).toBe("—");
+    // 计数类：没有发生就是真 0
+    expect(statValue(root, "上下文超限")).toBe("0");
+    expect(statValue(root, "重试")).toBe("0");
+    expect(statValue(root, "请求数")).toBe("0");
+  });
+
+  it("统计不可用（available=false）时显示降级提示而非白屏，其他区仍渲染", async () => {
+    const host = createMockHost(window, {
+      toolResults: {
+        get_overview: OVERVIEW_RESULT,
+        get_session_stats: {
+          content: [
+            { type: "text", text: JSON.stringify({ available: false, reason: "db-not-found", session: null, stats: null }) },
+          ],
+        },
+      },
+    });
+    await mountPanel({ win: window, target: host.target });
+    const root = document.getElementById("root");
+    expect(root.textContent).toContain("mock-greeting-骨架连通"); // 概览不受影响
+    expect(root.textContent).toContain("统计暂不可用");
+  });
+
+  it("统计工具调用失败（桥错误）时显示降级提示，用量区仍渲染", async () => {
+    const host = createMockHost(window, {
+      toolResults: {
+        get_overview: OVERVIEW_RESULT,
+        get_current_session_usage: USAGE_RESULT(HEARTBEAT_SESSION, MOCK_USAGE),
+      },
+      toolErrorNames: ["get_session_stats"],
+    });
+    await mountPanel({ win: window, target: host.target });
+    const root = document.getElementById("root");
+    expect(root.textContent).toContain("心跳精确"); // 用量区不受影响
+    expect(root.textContent).toContain("统计暂不可用");
+  });
+});

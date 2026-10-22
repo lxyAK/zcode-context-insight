@@ -16,6 +16,7 @@ import type { ToolDefinition } from "./registry.ts";
 import { getOverviewTool } from "./tools/get_overview.ts";
 import { createCurrentSessionUsageTool } from "./tools/get_current_session_usage.ts";
 import { createCurrentSessionCompositionTool } from "./tools/get_current_session_composition.ts";
+import { createSessionStatsTool } from "./tools/get_session_stats.ts";
 import { registerPanelResource } from "./panel-resource.ts";
 
 /** 工具注册表：新工具在此追加（扩展缝） */
@@ -23,6 +24,7 @@ const tools: ToolDefinition[] = [
   getOverviewTool,
   createCurrentSessionUsageTool(),
   createCurrentSessionCompositionTool(),
+  createSessionStatsTool(),
 ];
 
 function registerTools(server: McpServer, defs: ToolDefinition[]): void {
