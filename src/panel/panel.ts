@@ -1,8 +1,27 @@
 /**
- * 面板装配层：ui/initialize 握手 → callServerTool(get_overview / get_current_session_usage) → 渲染。
- * 页面骨架（页头 + 概览区 + 当前会话用量区）在此；后续工单的页面（Insights / Context 仪表盘 / Fleet）
- * 以新文件加入并在 renderOverview 处替换/扩展，不动桥协议层。
+ * 面板装配层：ui/initialize 握手 → callServerTool(get_overview / get_current_session_usage /
+ * get_current_session_composition / get_session_stats / get_session_events /
+ * get_session_file_activity) → 渲染。
+ * 页面骨架（页头 + 概览区 + 用量区 + 组成区 + 统计区 + 事件流/文件活动）在此；后续工单
+ * 的页面（Insights / Fleet）以新文件加入并在 renderOverview 处替换/扩展，不动桥协议层。
  */
+
+/** 通用工具文本载荷解析：取首个 text 块 JSON；无文本返回 null */
+async function callTextTool(
+  bridge: BridgeClient,
+  name: string,
+): Promise<Record<string, unknown> | null> {
+  try {
+    const result = (await bridge.request("tools/call", {
+      name,
+      arguments: {},
+    })) as { content?: Array<{ type: string; text?: string }> };
+    const text = result.content?.find((c) => c.type === "text")?.text;
+    return text ? (JSON.parse(text) as Record<string, unknown>) : null;
+  } catch {
+    return null; // 桥错误 → 降级提示（各视图自行处理 null）
+  }
+}
 
 /** 当前会话用量载荷（get_current_session_usage 的 structuredContent 形状） */
 interface UsagePayload {
@@ -26,7 +45,10 @@ import pkg from "../../package.json";
 import { t } from "./i18n.ts";
 import { BridgeClient, PostMessageTransport } from "./bridge.ts";
 import type { PostTarget } from "./bridge.ts";
+import { renderCompositionSection, type CompositionPayload } from "./views/composition.ts";
 import { renderStatsSection, type SessionStatsPayload } from "./views/stats.ts";
+import { renderEventsSection, renderFileActivitySection } from "./views/events.ts";
+import type { EventsPayload, FileActivityPayload } from "./views/events.ts";
 
 /** MCP Apps 协议版本（研究笔记 02 §2，与官方面板一致） */
 export const PROTOCOL_VERSION = "2026-01-26";
@@ -88,6 +110,19 @@ export async function mountPanel(opts: MountOptions): Promise<void> {
     usage = null; // 桥错误 → 降级提示
   }
 
+  // 上下文组成（T3）：独立 try/catch，失败不炸其他区块
+  let composition: CompositionPayload | null = null;
+  try {
+    const compResult = (await bridge.request("tools/call", {
+      name: "get_current_session_composition",
+      arguments: {},
+    })) as { content?: Array<{ type: string; text?: string }> };
+    const compText = compResult.content?.find((c) => c.type === "text")?.text;
+    composition = compText ? (JSON.parse(compText) as CompositionPayload) : null;
+  } catch {
+    composition = null;
+  }
+
   // 会话统计（T5）：三组统计卡，失败不炸用量区
   let stats: SessionStatsPayload | null = null;
   try {
@@ -101,7 +136,17 @@ export async function mountPanel(opts: MountOptions): Promise<void> {
     stats = null; // 桥错误 → 降级提示
   }
 
-  renderOverview(container, init, JSON.parse(textBlock.text), usage, stats);
+  // 事件流与文件活动（T7）：并行取数，失败各自降级为空态/暂不可用
+  const [eventsPayload, fileActivityPayload] = await Promise.all([
+    callTextTool(bridge, "get_session_events"),
+    callTextTool(bridge, "get_session_file_activity"),
+  ]);
+
+  renderOverview(container, init, JSON.parse(textBlock.text), usage, composition, stats);
+  container.append(
+    renderEventsSection(container.ownerDocument, eventsPayload as EventsPayload | null),
+    renderFileActivitySection(container.ownerDocument, fileActivityPayload as FileActivityPayload | null),
+  );
 }
 
 function el(
@@ -121,6 +166,7 @@ function renderOverview(
   init: { hostInfo?: { name?: string; version?: string } },
   payload: { plugin?: string; version?: string; server?: string; greeting?: string },
   usage: UsagePayload | null,
+  composition: CompositionPayload | null,
   stats: SessionStatsPayload | null,
 ): void {
   const doc = container.ownerDocument;
@@ -147,7 +193,14 @@ function renderOverview(
 
   const footer = el(doc, "footer", "zci-footer", t("footerSkeleton"));
 
-  container.append(header, section, renderUsageSection(doc, usage, kv), renderStatsSection(doc, stats), footer);
+  container.append(
+    header,
+    section,
+    renderUsageSection(doc, usage, kv),
+    renderCompositionSection(doc, composition),
+    renderStatsSection(doc, stats),
+    footer,
+  );
 }
 
 /** 当前会话精确用量区（T2）：数字 + 识别来源标注（心跳精确 / 推断）；不可用时降级提示 */
