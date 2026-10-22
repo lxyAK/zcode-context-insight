@@ -8,6 +8,7 @@
 import type { PageContext, PageDefinition, ToolCallResult } from "../registry.ts";
 import { el, fmtInt, fmtDateTime, shortDir } from "../dom.ts";
 import { t } from "../../i18n.ts";
+import { renderActivitySection, type ActivityPayload } from "../activity.ts";
 
 /** get_insights 载荷（工具 structuredContent 形状的类型化子集） */
 interface InsightsPayload {
@@ -80,9 +81,15 @@ export const insightsPage: PageDefinition = {
         return;
       }
       anchorTime = payload.anchorTime;
+      // 活跃热力图与模型环形图（T9）：与首屏渲染并行取数、独立降级（渲染函数接受 null）
+      const activityResult = await ctx.callTool("get_activity_insights", {});
       container.append(
         renderKpiBand(doc, payload.kpi),
         renderTrend(doc, payload.trend),
+        renderActivitySection(
+          doc,
+          activityResult.ok ? (activityResult.payload as unknown as ActivityPayload) : null,
+        ),
         renderSessionCards(doc, payload, filter, reload, ctx),
       );
     };

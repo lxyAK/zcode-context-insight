@@ -30,6 +30,36 @@ const zhCN = {
   kvVersion: "版本",
   usageUnavailable: "用量暂不可用（未检测到宿主数据库或心跳）",
   usageUnavailableReason: "用量暂不可用（{reason}）",
+  /** Insights 活跃区（T9） */
+  activityTitle: "活跃与模型组成",
+  activityTitleRanged: "活跃与模型组成（最近 {range} 天）",
+  activityUnavailable: "活跃数据暂不可用（未检测到宿主数据库）",
+  heatmapTitle: "活跃热力图",
+  heatmapAria: "最近 {range} 天活跃热力图",
+  noActivity: "窗口内无活动",
+  heatCellEmpty: "{date}｜无活动",
+  heatCellActive: "{date}｜{requests} 次请求 · {tokens} token · {sessions} 会话",
+  heatLegendLess: "少",
+  heatLegendMore: "多",
+  modelsTitle: "模型组成",
+  providersTitle: "按供应商",
+  donutSlice: "{label}｜{value} token（{pct}）",
+  donutLegendValue: "{value} token｜{pct}",
+  /** Fleet 代理网络树（T10） */
+  fleetTitle: "Fleet 代理网络",
+  fleetUnavailable: "代理网络暂不可用（未检测到宿主数据库或心跳）",
+  fleetBadgeRootExplicit: "指定会话",
+  fleetKvDuration: "请求耗时",
+  fleetKvErrorRequests: "错误请求",
+  fleetKvMs: "{ms} ms",
+  fleetTaskInteractive: "主会话",
+  fleetTaskSubagent: "子代理",
+  fleetTaskOther: "子会话",
+  fleetStatusCompleted: "已完成",
+  fleetStatusRunning: "进行中",
+  fleetStatusError: "错误",
+  fleetStatusCancelled: "已取消",
+  fleetStatusIdle: "无请求",
   /** 初始/错误态 */
   loading: "加载中…",
   noRootContainer: "面板缺少 #root 容器",
@@ -76,9 +106,6 @@ const zhCN = {
   contextKvRequests: "请求数",
   contextKvRecent: "最近更新",
   contextSelectedNote: "会话级明细区块（组成/趋势/事件流）由后续工单在此装载。",
-  /** Fleet 页占位（T8 骨架，T10 装载） */
-  fleetTitle: "Fleet 代理网络",
-  fleetPlaceholder: "待装载：主会话与子代理的父子树及节点用量卡片（T10）。",
 } as const;
 
 export type MessageKey = keyof typeof zhCN;

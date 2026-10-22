@@ -121,6 +121,8 @@ const S_EMPTY = "session_00000000000000000000000000000014"; // D-1，项目 A，
 /** 项目 B：与项目 A 不同的 project_id / directory（筛选下拉数据源） */
 const PROJ_B = "proj_d-.opensource-other-project";
 const DIR_B = "D:\\.opensource\\other-project";
+const S_MULTI = "session_00000000000000000000000000000004"; // interactive，T9 活跃数据行集：跨三个日历日、两个模型/供应商
+const S_SUBSUB = "sess_subagent_agent_00000000-0000-4000-8000-000000000004"; // subagent_child，parent=S_SUB → Fleet 树的孙代理层（T10）
 
 function insertSessions(db) {
   const stmt = db.prepare(
@@ -138,6 +140,10 @@ function insertSessions(db) {
   stmt.run(S_DAY3, PROJ_B, null, S_DAY3, DIR_B, "夹具项目B会话", "3.16.2", T0 - 3 * DAY + 3600000, T0 - 3 * DAY + 7200000, "interactive");
   stmt.run(S_DAY8, PROJ_B, null, S_DAY8, DIR_B, "夹具项目B旧会话", "3.16.2", T0 - 8 * DAY + 3600000, T0 - 8 * DAY + 7200000, "interactive");
   stmt.run(S_EMPTY, proj, null, S_EMPTY, dir, "夹具零用量会话", "3.16.2", T0 - DAY + 7000000, T0 - DAY + 8000000, "interactive");
+  // T9 跨日会话：time_updated（T0+30000）早于 S_MAIN（T0+60000），不破坏 T2 兜底选中 S_MAIN 的断言
+  stmt.run(S_MULTI, proj, null, S_MULTI, dir, "夹具跨日会话（T9）", "3.16.2", T0 - 2 * 86400000, T0 + 30000, "interactive");
+  // T10：孙代理挂在 S_SUB 之下（parent_id 链 S_MAIN → S_SUB → S_SUBSUB）
+  stmt.run(S_SUBSUB, proj, S_SUB, S_SUBSUB, dir, "夹具孙代理会话", "3.16.2", T0 + 45000, T0 + 55000, "subagent_child");
 }
 
 /**
@@ -206,6 +212,43 @@ function insertModelUsage(db) {
   row("mu_day8_1", S_DAY8, "turn_fixture_day8", "main_turn", "interactive",
     T0 - 8 * DAY + 3700000, 1000, 500, 480, 20, 0, 0, 0, 500);
   // S_EMPTY：无任何行（验证 LEFT JOIN 语义：requests=0 / totalTokens=0 仍出现在会话列表）
+  // S_SUBSUB（孙代理，T10）：先成功后失败两行。
+  // 期望聚合（手算）：requests=2, input=1100(800+300), output=100(100+0),
+  //   computedTotal=1200(900+300), durationMsTotal=1800(1500+300),
+  //   errorRequests=1，lastRequestStatus='error'（mu_subsub_2 的 started_at 更晚）
+  row("mu_subsub_1", S_SUBSUB, "turn_fixture_subsub", "subagent", "subagent_child",
+    T0 + 48000, 1500, 600, 800, 100, 0, 0, 700, 900);
+  row("mu_subsub_2", S_SUBSUB, "turn_fixture_subsub", "subagent", "subagent_child",
+    T0 + 52000, 300, null, 300, 0, 0, 0, 250, 300,
+    { status: "error", errorType: "mock_error" });
+}
+
+/**
+ * T9 活跃数据行集（全部挂 S_MULTI，不影响 T2 对 S_MAIN/S_OLD/S_SUB 的聚合断言）：
+ *   mu_act_a：D0（T0 当日）  GLM-5.3 / account:fixture     main_turn 700
+ *   mu_act_b：D0-1（前一日） GLM-4.7 / account:fixture-alt main_turn 300
+ *   mu_act_c：D0-2（前两日） GLM-5.3 / account:fixture     main_turn 500
+ *   mu_act_d：D0-2           GLM-4.7 / account:fixture-alt session_title 50（工具应按口径排除）
+ * 按 91 天窗口、排除 session_title 后的手算期望见 test/activity-insights.test.mjs 注释。
+ */
+function insertActivityRows(db) {
+  const stmt = db.prepare(
+    `INSERT INTO model_usage (id, logical_request_id, session_id, turn_id, query_source,
+       provider_id, model_id, task_type, status,
+       started_at, completed_at, duration_ms, time_to_first_token_ms,
+       input_tokens, output_tokens, reasoning_tokens,
+       cache_creation_input_tokens, cache_read_input_tokens, computed_total_tokens)
+     VALUES (?, ?, ?, ?, ?, ?, ?, 'interactive', 'completed',
+       ?, ?, ?, ?, ?, ?, ?, 0, 0, ?)`,
+  );
+  const row = (id, source, provider, model, startedAt, dur, ttft, inp, out, total) =>
+    stmt.run(id, `lrq_${id}`, S_MULTI, "turn_fixture_act", source, provider, model,
+      startedAt, startedAt + dur, dur, ttft, inp, out, 0, total);
+
+  row("mu_act_a", "main_turn", "account:fixture", "GLM-5.3", T0 + 30000, 1000, 500, 600, 100, 700);
+  row("mu_act_b", "main_turn", "account:fixture-alt", "GLM-4.7", T0 - 86400000 + 3600000, 800, 400, 250, 50, 300);
+  row("mu_act_c", "main_turn", "account:fixture", "GLM-5.3", T0 - 2 * 86400000 + 7200000, 1200, 600, 400, 100, 500);
+  row("mu_act_d", "session_title", "account:fixture-alt", "GLM-4.7", T0 - 2 * 86400000 + 7800000, 300, 150, 40, 10, 50);
 }
 
 function insertTurnUsage(db) {
@@ -537,6 +580,7 @@ db.exec("BEGIN");
 for (const ddl of DDL) db.exec(ddl);
 insertSessions(db);
 insertModelUsage(db);
+insertActivityRows(db);
 insertTurnUsage(db);
 insertMessageAndPart(db);
 insertT7Parts(db);
