@@ -15,3 +15,7 @@ ZCode 的上下文与 token 可视化插件：跨会话总览（Insights）、�
 ### Domain docs
 
 单上下文布局：根目录一个 `GLOSSARY.md`，决策记录在 `docs/adr/`。See `docs/agents/domain.md`.
+
+### Standards & research
+
+代码标准（/code-review 标准轴执行）见根目录 `CODING_STANDARDS.md`。宿主与插件协议的一手研究笔记（manifest 格式、面板桥协议、db.sqlite/rollout schema）在 `docs/research/`。
