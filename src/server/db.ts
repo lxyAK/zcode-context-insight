@@ -41,3 +41,25 @@ export function openReadonlyDatabase(dbPath: string): DbOpenResult {
     return { ok: false, reason: `db-open-failed: ${err instanceof Error ? err.message : String(err)}` };
   }
 }
+
+/**
+ * 查询期错误分类（T13 schema 漂移细粒度容错）：把 SQLite 异常映射为稳定的机器可读
+ * reason，工具层据此降级（available:false + reason），面板据此渲染错误空态。
+ * 映射口径（消息形态对照 node:sqlite 实测）：
+ *  - "no such table: X"   → schema-drift:missing-table:X（宿主未来版本表改名/移除）
+ *  - "no such column: Y"  → schema-drift:missing-column:Y（列改名/拆分）
+ *  - "malformed JSON"     → schema-drift:malformed-json（json_extract 遇到坏 data 行；
+ *                           查询已用 json_valid 前置过滤，此处仅兜底）
+ *  - "database is locked" → db-busy（宿主写事务持锁，busy_timeout 等待后仍冲突）
+ *  - 其余                 → query-failed: <原始消息>（保留可诊断性）
+ */
+export function classifyDbError(err: unknown): string {
+  const msg = err instanceof Error ? err.message : String(err);
+  let m = /^no such table: (.+)$/.exec(msg);
+  if (m) return `schema-drift:missing-table:${m[1].trim()}`;
+  m = /^no such column: (.+)$/.exec(msg);
+  if (m) return `schema-drift:missing-column:${m[1].trim()}`;
+  if (/malformed JSON/i.test(msg)) return "schema-drift:malformed-json";
+  if (/database is locked/i.test(msg)) return "db-busy";
+  return `query-failed: ${msg}`;
+}

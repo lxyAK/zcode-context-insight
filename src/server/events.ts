@@ -54,20 +54,37 @@ function countLines(s: unknown): number | null {
   return s.length === 0 ? 0 : s.split("\n").length;
 }
 
+/**
+ * 安全 JSON 解析（T13 行级容错）：json_valid 已在 SQL 侧过滤绝大多数坏行，
+ * 此处兜底个别 SQLite/JS 语法差异（如前导零数字），坏行返回 null 由调用方跳过。
+ */
+function safeParseJson(text: string): Record<string, unknown> | null {
+  try {
+    const parsed = JSON.parse(text) as unknown;
+    return typeof parsed === "object" && parsed !== null && !Array.isArray(parsed)
+      ? (parsed as Record<string, unknown>)
+      : null;
+  } catch {
+    return null;
+  }
+}
+
 /** 查询会话事件流：压缩 + 模型切换，按时间升序合并返回 */
 export function listSessionEvents(db: DatabaseSync, sessionId: string): SessionEvent[] {
   const events: SessionEvent[] = [];
 
   // 压缩事件（spec 指定来源：DB 的 compaction part；先按 session_id 过滤走 part_session_idx）
+  // json_valid 前置过滤（T13）：data 非法 JSON 的行跳过，不毒化整查询
   const compactions = db
     .prepare(
       `SELECT time_created, data FROM part
-       WHERE session_id = ? AND json_extract(data, '$.type') = 'compaction'
+       WHERE session_id = ? AND json_valid(data) AND json_extract(data, '$.type') = 'compaction'
        ORDER BY time_created ASC, sequence ASC`,
     )
     .all(sessionId) as Array<{ time_created: number; data: string }>;
   for (const row of compactions) {
-    const d = JSON.parse(row.data) as Record<string, unknown>;
+    const d = safeParseJson(row.data);
+    if (!d) continue; // 坏行跳过
     const boundary = (d.compactBoundary ?? {}) as Record<string, unknown>;
     // 触发方式：trigger 字段优先（实测 'manual'|'auto'），缺失时按 auto 布尔推导
     const trigger: "manual" | "auto" | "unknown" =
@@ -94,13 +111,14 @@ export function listSessionEvents(db: DatabaseSync, sessionId: string): SessionE
   const changes = db
     .prepare(
       `SELECT time_created, data FROM part
-       WHERE session_id = ? AND json_extract(data, '$.type') = 'timeline'
+       WHERE session_id = ? AND json_valid(data) AND json_extract(data, '$.type') = 'timeline'
          AND json_extract(data, '$.timelineType') = 'model_change'
        ORDER BY time_created ASC, sequence ASC`,
     )
     .all(sessionId) as Array<{ time_created: number; data: string }>;
   for (const row of changes) {
-    const d = JSON.parse(row.data) as Record<string, unknown>;
+    const d = safeParseJson(row.data);
+    if (!d) continue; // 坏行跳过
     // 两种键形态：toModelSelection（camelCase，优先）与 toModel（全大写，回退）
     const sel = (d.toModelSelection ?? {}) as Record<string, unknown>;
     const to = (d.toModel ?? {}) as Record<string, unknown>;
@@ -117,6 +135,7 @@ export function listSessionEvents(db: DatabaseSync, sessionId: string): SessionE
 
 /** 查询文件活动：Read/Write/Edit/Grep/Glob 工具调用记录，按时间升序返回 */
 export function listSessionFileActivity(db: DatabaseSync, sessionId: string): FileActivityItem[] {
+  // json_valid 前置过滤（T13）：data 非法 JSON 的行跳过，不毒化整查询
   const rows = db
     .prepare(
       `SELECT time_created,
@@ -129,7 +148,7 @@ export function listSessionFileActivity(db: DatabaseSync, sessionId: string): Fi
               json_extract(data, '$.state.input.new_string') AS new_string,
               json_extract(data, '$.state.input.old_string') AS old_string
        FROM part
-       WHERE session_id = ? AND json_extract(data, '$.type') = 'tool'
+       WHERE session_id = ? AND json_valid(data) AND json_extract(data, '$.type') = 'tool'
          AND json_extract(data, '$.tool') IN ('Read','Write','Edit','Grep','Glob')
        ORDER BY time_created ASC, sequence ASC`,
     )

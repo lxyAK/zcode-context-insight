@@ -17,7 +17,7 @@
 import { z } from "zod";
 import type { ToolDefinition } from "../registry.ts";
 import { resolveDbPath } from "../paths.ts";
-import { openReadonlyDatabase } from "../db.ts";
+import { classifyDbError, openReadonlyDatabase } from "../db.ts";
 
 /** 默认窗口：最近 91 个日历日（热力图 13 周 × 7 天） */
 const DEFAULT_DAYS = 91;
@@ -114,9 +114,9 @@ function collectActivity(deps: ActivityDeps, days: number): Record<string, unkno
       providers: aggregateBy(rows, (r) => r.provider_id, null),
     };
   } catch (err) {
-    // schema 漂移（缺表缺列）等查询期异常：降级而非炸面板
+    // schema 漂移（缺表缺列）/BUSY 等查询期异常：分类降级而非炸面板（classifyDbError，T13）
     return unavailable(
-      `query-failed: ${err instanceof Error ? err.message : String(err)}`,
+      classifyDbError(err),
     );
   } finally {
     opened.db.close();

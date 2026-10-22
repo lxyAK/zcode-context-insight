@@ -163,7 +163,8 @@ export function fetchCompactionEvents(
     summarized: number | null;
     kept: number | null;
   }
-  // 真实结构中 trigger/phase/compactReason 顶层与 compactBoundary 内均可能出现，取先非空者
+  // 真实结构中 trigger/phase/compactReason 顶层与 compactBoundary 内均可能出现，取先非空者；
+  // json_valid 前置过滤（T13）：data 非法 JSON 的行跳过，不毒化整查询
   const rows = db
     .prepare(
       `SELECT time_created,
@@ -177,7 +178,7 @@ export function fetchCompactionEvents(
               json_extract(data, '$.compactBoundary.summarizedMessageCount') AS summarized,
               json_extract(data, '$.compactBoundary.keptMessageCount') AS kept
        FROM part
-       WHERE session_id = ? AND json_extract(data, '$.type') = 'compaction'
+       WHERE session_id = ? AND json_valid(data) AND json_extract(data, '$.type') = 'compaction'
        ORDER BY time_created ASC, id ASC`,
     )
     .all(sessionId) as unknown as PartRow[];

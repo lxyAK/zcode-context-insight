@@ -27,7 +27,8 @@ import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import type { ToolDefinition } from "../registry.ts";
 import { resolveDbPath, resolveHeartbeatPath, resolveRolloutDir } from "../paths.ts";
-import { openReadonlyDatabase } from "../db.ts";
+import { classifyDbError, openReadonlyDatabase } from "../db.ts";
+import { readHeartbeat } from "../heartbeat.ts";
 import { resolveCurrentSession } from "../usage.ts";
 
 /** 工具依赖（测试注入缝；缺省从环境与宿主默认路径解析） */
@@ -393,7 +394,11 @@ function safeStringify(value: unknown): string {
 // 会话解析与工具装配
 // ---------------------------------------------------------------------------
 
-/** sessionId 缺省时解析当前会话（心跳优先 → 最近活跃 interactive 兜底） */
+/**
+ * sessionId 缺省时解析当前会话：心跳精确优先 → 最近活跃 interactive 兜底。
+ * T13：有精确心跳时无需开库（db 缺失/被锁不阻断 rollout 侧的序列与明细）；
+ * 兜底查询异常按 classifyDbError 分类降级。
+ */
 function resolveSessionId(
   deps: RequestDetailDeps,
   input: { sessionId?: string },
@@ -401,15 +406,18 @@ function resolveSessionId(
   if (typeof input.sessionId === "string" && input.sessionId.length > 0) {
     return { ok: true, id: input.sessionId };
   }
+  const heartbeat = readHeartbeat(deps.heartbeatPath ?? resolveHeartbeatPath());
+  if (heartbeat) {
+    return { ok: true, id: heartbeat.sessionId };
+  }
   const dbPath = deps.dbPath ?? resolveDbPath();
-  const heartbeatPath = deps.heartbeatPath ?? resolveHeartbeatPath();
   const opened = openReadonlyDatabase(dbPath);
   if (!opened.ok) return { ok: false, reason: opened.reason };
   try {
-    const current = resolveCurrentSession(opened.db, heartbeatPath);
+    const current = resolveCurrentSession(opened.db, "");
     return current ? { ok: true, id: current.id } : { ok: false, reason: "no-interactive-session" };
-  } catch {
-    return { ok: false, reason: "session-resolve-failed" };
+  } catch (err) {
+    return { ok: false, reason: classifyDbError(err) };
   } finally {
     opened.db.close();
   }
