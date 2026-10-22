@@ -80,6 +80,131 @@ export function getSessionRow(db: DatabaseSync, sessionId: string): SessionRow |
   };
 }
 
+/** 逐请求时间线行（T4；字段语义对照 model_usage 同名列，时间戳为 Unix 毫秒） */
+export interface TimelineRequestRow {
+  index: number;
+  startedAt: number;
+  querySource: string;
+  modelId: string;
+  status: string;
+  inputTokens: number;
+  outputTokens: number;
+  reasoningTokens: number;
+  cacheReadTokens: number;
+  cacheWriteTokens: number;
+  computedTotalTokens: number;
+  contextExceeded: boolean;
+}
+
+/** 取指定会话的逐请求时间线（model_usage 按 started_at 升序，序号从 0 起） */
+export function fetchRequestTimeline(db: DatabaseSync, sessionId: string): TimelineRequestRow[] {
+  const rows = db
+    .prepare(
+      `SELECT started_at, query_source, model_id, status,
+              input_tokens, output_tokens, reasoning_tokens,
+              cache_creation_input_tokens, cache_read_input_tokens, computed_total_tokens,
+              context_exceeded
+       FROM model_usage WHERE session_id = ?
+       ORDER BY started_at ASC, id ASC`,
+    )
+    .all(sessionId) as Array<Record<string, number | string | null>>;
+  return rows.map((r, index) => ({
+    index,
+    startedAt: Number(r.started_at),
+    querySource: String(r.query_source),
+    modelId: String(r.model_id),
+    status: String(r.status),
+    inputTokens: Number(r.input_tokens ?? 0),
+    outputTokens: Number(r.output_tokens ?? 0),
+    reasoningTokens: Number(r.reasoning_tokens ?? 0),
+    cacheReadTokens: Number(r.cache_read_input_tokens ?? 0),
+    cacheWriteTokens: Number(r.cache_creation_input_tokens ?? 0),
+    computedTotalTokens: Number(r.computed_total_tokens ?? 0),
+    contextExceeded: Number(r.context_exceeded ?? 0) !== 0,
+  }));
+}
+
+/**
+ * 压缩事件标记（T4；来自 part 表 type='compaction' 行，结构对照研究笔记 03 §5）。
+ * 口径：truePostCompactTokenCount = 真实压缩后上下文 token 数；
+ *       postCompactTokenCount = 含总结消息在内的 post 值（两者刻意区分，勿混用）。
+ */
+export interface CompactionEvent {
+  time: number;
+  /** 触发方式：auto=true 自动 / false 手动 */
+  auto: boolean | null;
+  trigger: string | null;
+  phase: string | null;
+  compactReason: string | null;
+  preCompactTokenCount: number | null;
+  postCompactTokenCount: number | null;
+  truePostCompactTokenCount: number | null;
+  summarizedMessageCount: number | null;
+  keptMessageCount: number | null;
+  /** 关联的时间线请求序号（最后一个 started_at <= time 的请求；早于全部请求时为 null） */
+  requestIndex: number | null;
+}
+
+/** 查询指定会话的压缩事件并关联请求序号（part 无函数索引，先按 session_id 过滤） */
+export function fetchCompactionEvents(
+  db: DatabaseSync,
+  sessionId: string,
+  requests: TimelineRequestRow[] = [],
+): CompactionEvent[] {
+  interface PartRow {
+    time_created: number;
+    auto: number | null;
+    trigger: string | null;
+    phase: string | null;
+    compactReason: string | null;
+    pre: number | null;
+    post: number | null;
+    truePost: number | null;
+    summarized: number | null;
+    kept: number | null;
+  }
+  // 真实结构中 trigger/phase/compactReason 顶层与 compactBoundary 内均可能出现，取先非空者
+  const rows = db
+    .prepare(
+      `SELECT time_created,
+              json_extract(data, '$.auto') AS auto,
+              COALESCE(json_extract(data, '$.trigger'), json_extract(data, '$.compactBoundary.trigger')) AS trigger,
+              COALESCE(json_extract(data, '$.phase'), json_extract(data, '$.compactBoundary.phase')) AS phase,
+              COALESCE(json_extract(data, '$.compactReason'), json_extract(data, '$.compactBoundary.compactReason')) AS compactReason,
+              json_extract(data, '$.compactBoundary.preCompactTokenCount') AS pre,
+              json_extract(data, '$.compactBoundary.postCompactTokenCount') AS post,
+              json_extract(data, '$.compactBoundary.truePostCompactTokenCount') AS truePost,
+              json_extract(data, '$.compactBoundary.summarizedMessageCount') AS summarized,
+              json_extract(data, '$.compactBoundary.keptMessageCount') AS kept
+       FROM part
+       WHERE session_id = ? AND json_extract(data, '$.type') = 'compaction'
+       ORDER BY time_created ASC, id ASC`,
+    )
+    .all(sessionId) as unknown as PartRow[];
+
+  return rows.map((r) => {
+    // 关联序号：最后一个 started_at <= 事件时间的请求（requests 已按时间升序）
+    let requestIndex: number | null = null;
+    for (const req of requests) {
+      if (req.startedAt <= Number(r.time_created)) requestIndex = req.index;
+      else break;
+    }
+    return {
+      time: Number(r.time_created),
+      auto: r.auto === null ? null : Number(r.auto) !== 0,
+      trigger: r.trigger ?? null,
+      phase: r.phase ?? null,
+      compactReason: r.compactReason ?? null,
+      preCompactTokenCount: r.pre === null ? null : Number(r.pre),
+      postCompactTokenCount: r.post === null ? null : Number(r.post),
+      truePostCompactTokenCount: r.truePost === null ? null : Number(r.truePost),
+      summarizedMessageCount: r.summarized === null ? null : Number(r.summarized),
+      keptMessageCount: r.kept === null ? null : Number(r.kept),
+      requestIndex,
+    };
+  });
+}
+
 /** 聚合指定会话的请求级精确用量（SUM 对空集返回 NULL，统一落 0） */
 export function aggregateSessionUsage(db: DatabaseSync, sessionId: string): UsageAggregate {
   const total = db
