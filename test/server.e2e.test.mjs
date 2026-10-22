@@ -4,23 +4,31 @@
  */
 import { describe, it, expect, afterAll } from "vitest";
 import { spawn } from "node:child_process";
-import { readFileSync } from "node:fs";
+import { mkdtempSync, rmSync, readFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 
 const repoRoot = dirname(dirname(fileURLToPath(import.meta.url)));
 const pkg = JSON.parse(readFileSync(join(repoRoot, "package.json"), "utf8"));
 
+/** e2e 设置夹具目录：settings.json 读写往返的真值落点（测试隔离，绝不触碰真实数据目录） */
+const e2eTmp = mkdtempSync(join(tmpdir(), "zci-e2e-"));
+afterAll(() => rmSync(e2eTmp, { recursive: true, force: true }));
+
 /** 起一个 MCP stdio 子进程，返回按 id 匹配响应的极简 JSON-RPC 客户端 */
 async function startServer() {
   const child = spawn(process.execPath, ["dist/server.mjs"], {
     cwd: repoRoot,
     stdio: ["pipe", "pipe", "pipe"],
-    // 红线隔离：e2e 不读真实宿主库，注入不存在的 db/心跳路径（工具应走 available=false 降级）
+    // 红线隔离：e2e 不读真实宿主库，注入不存在的 db/心跳路径（工具应走 available=false 降级）；
+    // 设置注入临时文件；rollout 指向不存在目录（watcher 容错降级，且绝不 watch 真实宿主目录）
     env: {
       ...process.env,
       ZCI_DB_PATH: join(repoRoot, "test", "fixtures", "e2e-absent.sqlite"),
       ZCI_HEARTBEAT_PATH: join(repoRoot, "test", "fixtures", "e2e-absent.json"),
+      ZCI_SETTINGS_PATH: join(e2eTmp, "settings.json"),
+      ZCI_ROLLOUT_DIR: join(e2eTmp, "absent-rollout"),
     },
   });
   const stderr = [];
@@ -146,5 +154,55 @@ describe("MCP server（stdio e2e）", () => {
     expect(content.uri).toBe("ui://zcode-context-insight/panel.html");
     expect(content.mimeType).toBe("text/html;profile=mcp-app");
     expect(content.text).toContain('id="root"');
+  });
+});
+
+describe("MCP server e2e：设置与数据版本工具（T12）", () => {
+  it("tools/list 含 get_settings/set_settings/get_data_version；set_settings 标注 readOnlyHint=false", async () => {
+    const result = await server.request("tools/list", {});
+    const names = result.tools.map((t) => t.name);
+    expect(names).toContain("get_settings");
+    expect(names).toContain("set_settings");
+    expect(names).toContain("get_data_version");
+
+    const setTool = result.tools.find((t) => t.name === "set_settings");
+    expect(setTool.annotations?.readOnlyHint).toBe(false); // 写操作工具不得宣称只读
+    const getTool = result.tools.find((t) => t.name === "get_settings");
+    expect(getTool.annotations?.readOnlyHint).toBe(true);
+  });
+
+  it("设置读写往返：set → get 读回一致；非法枚举回退默认并提示", async () => {
+    const set = await server.request("tools/call", {
+      name: "set_settings",
+      arguments: { defaultView: "fleet", trendGranularity: "weekly" },
+    });
+    expect(set.isError).toBeFalsy();
+    const setPayload = set.structuredContent;
+    expect(setPayload.available).toBe(true);
+    expect(setPayload.settings.defaultView).toBe("fleet"); // 合法值生效
+    expect(setPayload.settings.trendGranularity).toBe("request"); // 未知枚举回退默认
+    expect(setPayload.warnings.some((w) => w.includes("trendGranularity"))).toBe(true);
+
+    const get = await server.request("tools/call", { name: "get_settings", arguments: {} });
+    const getPayload = get.structuredContent;
+    expect(getPayload.available).toBe(true);
+    expect(getPayload.settings).toEqual(setPayload.settings); // 持久化后读回一致
+    // 独立真值来源：落盘文件内容
+    const onDisk = JSON.parse(readFileSync(join(e2eTmp, "settings.json"), "utf8"));
+    expect(onDisk).toEqual(setPayload.settings);
+  });
+
+  it("get_data_version 返回整数版本与监听状态（rollout 目录缺失 → 该源 watching=false 容错）", async () => {
+    const result = await server.request("tools/call", {
+      name: "get_data_version",
+      arguments: {},
+    });
+    expect(result.isError).toBeFalsy();
+    const payload = result.structuredContent;
+    expect(Number.isInteger(payload.dataVersion)).toBe(true);
+    expect(payload.dataVersion).toBeGreaterThanOrEqual(1);
+    // db 源监听 fixtures 目录（存在 → true，监听建立即可，文件缺失不妨碍将来感知）；
+    // rollout 源注入不存在目录 → 如实降级 false
+    expect(payload.watching).toEqual({ db: true, rollout: false });
   });
 });
