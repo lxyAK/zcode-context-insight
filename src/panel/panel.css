@@ -10,7 +10,8 @@ body,
 #root {
   box-sizing: border-box;
   padding: 12px;
-  font: 13px/1.6 system-ui, "Segoe UI", sans-serif;
+  /* 中文优先字体回退：system-ui 在 Windows 下不含中文字形，补微软雅黑/苹方/Noto（零外链，系统字体） */
+  font: 13px/1.6 system-ui, "Segoe UI", "PingFang SC", "Microsoft YaHei", "Noto Sans CJK SC", sans-serif;
   color: var(--color-text-primary, #222);
   background: var(--color-background-primary, #fff);
 }
