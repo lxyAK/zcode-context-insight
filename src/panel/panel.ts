@@ -26,6 +26,7 @@ import pkg from "../../package.json";
 import { t } from "./i18n.ts";
 import { BridgeClient, PostMessageTransport } from "./bridge.ts";
 import type { PostTarget } from "./bridge.ts";
+import { renderStatsSection, type SessionStatsPayload } from "./views/stats.ts";
 
 /** MCP Apps 协议版本（研究笔记 02 §2，与官方面板一致） */
 export const PROTOCOL_VERSION = "2026-01-26";
@@ -87,7 +88,20 @@ export async function mountPanel(opts: MountOptions): Promise<void> {
     usage = null; // 桥错误 → 降级提示
   }
 
-  renderOverview(container, init, JSON.parse(textBlock.text), usage);
+  // 会话统计（T5）：三组统计卡，失败不炸用量区
+  let stats: SessionStatsPayload | null = null;
+  try {
+    const statsResult = (await bridge.request("tools/call", {
+      name: "get_session_stats",
+      arguments: {},
+    })) as { content?: Array<{ type: string; text?: string }> };
+    const statsText = statsResult.content?.find((c) => c.type === "text")?.text;
+    stats = statsText ? (JSON.parse(statsText) as SessionStatsPayload) : null;
+  } catch {
+    stats = null; // 桥错误 → 降级提示
+  }
+
+  renderOverview(container, init, JSON.parse(textBlock.text), usage, stats);
 }
 
 function el(
@@ -107,6 +121,7 @@ function renderOverview(
   init: { hostInfo?: { name?: string; version?: string } },
   payload: { plugin?: string; version?: string; server?: string; greeting?: string },
   usage: UsagePayload | null,
+  stats: SessionStatsPayload | null,
 ): void {
   const doc = container.ownerDocument;
   container.replaceChildren();
@@ -132,7 +147,7 @@ function renderOverview(
 
   const footer = el(doc, "footer", "zci-footer", t("footerSkeleton"));
 
-  container.append(header, section, renderUsageSection(doc, usage, kv), footer);
+  container.append(header, section, renderUsageSection(doc, usage, kv), renderStatsSection(doc, stats), footer);
 }
 
 /** 当前会话精确用量区（T2）：数字 + 识别来源标注（心跳精确 / 推断）；不可用时降级提示 */
