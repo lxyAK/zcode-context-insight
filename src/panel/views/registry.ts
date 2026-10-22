@@ -8,6 +8,7 @@
 import { insightsPage } from "./pages/insights.ts";
 import { contextPage } from "./pages/context.ts";
 import { fleetPage } from "./pages/fleet.ts";
+import type { PanelSettings } from "./settings.ts";
 
 /** 路由参数（跨页传值缝；sessionId 供 Context 仪表盘锚定目标会话） */
 export type RouteParams = Record<string, string | number | boolean | null | undefined>;
@@ -30,6 +31,8 @@ export interface PageContext {
   callTool: (name: string, args?: Record<string, unknown>) => Promise<ToolCallResult>;
   /** 宿主名（页头"已连接"标注用；装配层注入） */
   hostName?: string;
+  /** 已生效插件设置（US22 消费方接线：页面按设置调整行为）；设置不可用时缺省 */
+  settings?: PanelSettings;
 }
 
 /** 页面定义（注册表条目） */

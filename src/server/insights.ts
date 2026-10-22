@@ -5,8 +5,9 @@
  *  - KPI 跨全部未删除会话，不受会话列表筛选参数影响；
  *    totalTokens = 全部 model_usage.computed_total_tokens 合计（含 session_title/compact 行）；
  *    activeDays = model_usage.started_at 去重 UTC 日数（"有模型请求"才算活跃）；
- *  - 7 天趋势锚定全库最大 started_at（夹具下确定性可算；真实宿主库持续写入，锚点≈当下），
- *    窗口为锚点 UTC 日起往前 7 个含端点日桶，旧→新返回；窗口外日期只计入 KPI 不计入趋势；
+ *  - 日趋势锚定全库最大 started_at（夹具下确定性可算；真实宿主库持续写入，锚点≈当下），
+ *    窗口为锚点 UTC 日起往前 trendDays 个含端点日桶（默认 7；面板按趋势粒度设置传
+ *    7/14/30，见 get_insights 入参 trendDays），旧→新返回；窗口外日期只计入 KPI 不计入趋势；
  *  - 会话列表 = session LEFT JOIN model_usage（零用量会话保留 requests=0/totalTokens=0），
  *    支持 project / since / until / minTokens / sort(recent|tokens) / limit 筛选。
  */
@@ -73,6 +74,7 @@ export interface InsightsPayload {
 }
 
 const DAY_MS = 86400000;
+/** 默认趋势窗口（7 天；面板按趋势粒度设置传 7/14/30 覆盖） */
 const TREND_DAYS = 7;
 const DEFAULT_LIMIT = 50;
 const MAX_LIMIT = 200;
@@ -83,12 +85,16 @@ function dayIndexToDate(index: number): string {
 }
 
 /** 查询全部聚合（打开的只读连接；任何异常由工具层 catch 降级） */
-export function collectInsights(db: DatabaseSync, filter: Partial<SessionFilter>): InsightsPayload {
+export function collectInsights(
+  db: DatabaseSync,
+  filter: Partial<SessionFilter>,
+  trendDays: number = TREND_DAYS,
+): InsightsPayload {
   const normalized = normalizeFilter(filter);
 
   const kpi = queryKpi(db);
   const anchorTime = queryAnchorTime(db);
-  const trend = queryTrend(db, anchorTime);
+  const trend = queryTrend(db, anchorTime, trendDays);
   const projects = queryProjects(db);
   const { total, items } = querySessions(db, normalized);
 
@@ -141,10 +147,19 @@ function queryAnchorTime(db: DatabaseSync): number {
   return session.a ?? 0;
 }
 
-/** 7 天趋势：锚点 UTC 日为最后一桶，窗口内按日聚合（窗口外行不选取） */
-function queryTrend(db: DatabaseSync, anchorTime: number): TrendDay[] {
+/** 趋势窗口天数边界（面板按 trendGranularity 设置传 7/14/30；越界回退默认 7） */
+const MAX_TREND_DAYS = 90;
+
+/** 趋势窗口天数归一：非法/越界回退默认 7 */
+function normalizeTrendDays(value: unknown): number {
+  return clampInt(value, 1, MAX_TREND_DAYS, TREND_DAYS);
+}
+
+/** 日趋势：锚点 UTC 日为最后一桶，窗口内按日聚合（窗口外行不选取；天数为面板设置驱动的窗口参数） */
+function queryTrend(db: DatabaseSync, anchorTime: number, trendDays: number): TrendDay[] {
+  const days = normalizeTrendDays(trendDays);
   const anchorDay = Math.floor(anchorTime / DAY_MS);
-  const firstDay = anchorDay - (TREND_DAYS - 1);
+  const firstDay = anchorDay - (days - 1);
   const rows = db
     .prepare(
       `SELECT (started_at / ${DAY_MS}) AS dayIndex,

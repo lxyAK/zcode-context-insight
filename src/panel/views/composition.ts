@@ -69,8 +69,15 @@ function degradeMessage(reason: string | undefined): string {
 /**
  * 渲染"上下文组成"区块。
  * panel.ts 只做最小挂载：本函数独立负责全部 DOM 构造与空态/降级分支。
+ * 密度（US22 估算密度设置的消费方）：coarse=图例只显四分组名（不显逐组数值/占比、
+ * 不显锚点脚注）/ balanced=图例含校准值与占比 + 锚点口径脚注（默认）/
+ * detailed=balanced 基础上附块级说明（锚点消息规模与 Context Browser 明细指引）。
  */
-export function renderCompositionSection(doc: Document, payload: CompositionPayload | null): HTMLElement {
+export function renderCompositionSection(
+  doc: Document,
+  payload: CompositionPayload | null,
+  density: "coarse" | "balanced" | "detailed" = "balanced",
+): HTMLElement {
   const section = htmlEl(doc, "section", "zci-section");
   const title = htmlEl(doc, "h2", "zci-subtitle", "上下文组成");
   section.append(title);
@@ -143,7 +150,7 @@ export function renderCompositionSection(doc: Document, payload: CompositionPayl
   }
   section.append(kvRow, bar);
 
-  // 图例：分组名 + 校准值 + 占比
+  // 图例：分组名 +（balanced 及以上）校准值与占比
   const legend = htmlEl(doc, "div", "zci-comp-legend");
   for (const group of GROUPS) {
     const value = calibrated[group.key] ?? 0;
@@ -154,16 +161,27 @@ export function renderCompositionSection(doc: Document, payload: CompositionPayl
     row.append(
       swatch,
       htmlEl(doc, "span", "zci-comp-legend-label", group.label),
-      htmlEl(doc, "span", "zci-comp-legend-value", `${value} · ${pct}%`),
     );
+    if (density !== "coarse") {
+      row.append(htmlEl(doc, "span", "zci-comp-legend-value", `${value} · ${pct}%`));
+    }
     legend.append(row);
   }
   section.append(legend);
 
-  // 口径脚注：估算方式与锚点（归一化方式说明）
-  const anchorNote = payload.anchor?.requestId
-    ? `锚定最近 full 请求（${payload.anchor.requestId}）的 API 精确用量，按比例归一化（因子 ${composition.scaleFactor.toFixed(3)}）。`
-    : "锚定最近 full 请求的 API 精确用量，按比例归一化。";
-  section.append(htmlEl(doc, "p", "zci-comp-note", `分组为启发式折算的估算值。${anchorNote}`));
+  // 口径脚注：coarse 只保留"估算"声明；balanced 及以上附锚点与归一化方式说明；
+  // detailed 再附块级说明（锚点消息规模 + Context Browser 明细指引）
+  const notes = ["分组为启发式折算的估算值。"];
+  if (density !== "coarse") {
+    notes.push(
+      payload.anchor?.requestId
+        ? `锚定最近 full 请求（${payload.anchor.requestId}）的 API 精确用量，按比例归一化（因子 ${composition.scaleFactor.toFixed(3)}）。`
+        : "锚定最近 full 请求的 API 精确用量，按比例归一化。",
+    );
+  }
+  if (density === "detailed" && typeof payload.anchor?.messageCount === "number") {
+    notes.push(`块级说明：锚点快照携带 ${payload.anchor.messageCount} 条消息；逐块明细（分组/块/占比三级）见下方 Context Browser。`);
+  }
+  section.append(htmlEl(doc, "p", "zci-comp-note", notes.join("")));
   return section;
 }

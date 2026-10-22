@@ -145,6 +145,22 @@ describe("面板设置卡片（mock 桥）", () => {
     expect(byField.estimationDensity.value).toBe("coarse");
   });
 
+  // 设置消费方接线（review 修复）：设置已影响面板行为，卡片文案如实说明各设置的实际效果
+  it("设置卡片展示三项设置的效果说明（默认视图/趋势窗口/组成密度）", async () => {
+    const host = createMockHost(window, {
+      toolResults: {
+        get_insights: INSIGHTS_TREND_RESULT(7),
+        get_settings: SETTINGS_RESULT(),
+      },
+    });
+    await mount(host);
+    const root = document.getElementById("root");
+
+    expect(root.textContent).toContain("打开面板时首先显示的页面");
+    expect(root.textContent).toContain("逐请求=7 天 / 按轮=14 天 / 按天=30 天");
+    expect(root.textContent).toContain("粗略=仅四分组 / 均衡=分组数值与占比 / 精细=另附块级说明");
+  });
+
   it("修改选项：发出 set_settings（仅变更字段），生效值与保存提示反映回 UI", async () => {
     const host = createMockHost(window, {
       toolResults: {
@@ -245,3 +261,119 @@ describe("面板设置卡片（mock 桥）", () => {
     expect(localStorage.length).toBe(0);
   });
 });
+
+// ============================================================================
+// 设置消费方接线（review 修复，US22"每次打开都是我要的样子"）：
+// 三项设置不再只是存储——defaultView 决定初始页、trendGranularity 决定 Insights
+// 趋势窗口（request=7 / turn=14 / day=30 天，标题同步显示实际窗口）。
+// ============================================================================
+
+const INSIGHTS_TREND_RESULT = (days) => ({
+  content: [
+    {
+      type: "text",
+      text: JSON.stringify({
+        available: true,
+        anchorTime: 1792600045000,
+        kpi: { totalTokens: 60555, totalSessions: 7, activeDays: 4 },
+        // 旧→新 days 桶（值全零；断言关心窗口长度与调用参数，不关心数值）
+        trend: Array.from({ length: days }, (_, i) => ({
+          date: `2026-10-${String(22 - days + i).padStart(2, "0")}`,
+          tokens: 0,
+          requests: 0,
+          sessions: 0,
+        })),
+        projects: [],
+        sessions: { filters: { sort: "recent", limit: 50 }, total: 0, items: [] },
+      }),
+    },
+  ],
+});
+
+describe("设置消费方接线（US22：打开即我要的样子）", () => {
+  beforeEach(() => {
+    document.body.innerHTML = '<div id="root">Loading…</div>';
+  });
+
+  it("defaultView=context：初始页为 Context（首个 tools/call 为 get_settings，其次页面取数）", async () => {
+    const host = createMockHost(window, {
+      toolResults: {
+        get_overview: OVERVIEW_RESULT,
+        get_settings: SETTINGS_RESULT({ defaultView: "context", trendGranularity: "request", estimationDensity: "balanced" }),
+      },
+    });
+    await mount(host);
+
+    // 初始页高亮 Context，页面数据（get_overview）已被调用并渲染
+    const root = document.getElementById("root");
+    await new Promise((r) => setTimeout(r, 20));
+    expect(root.querySelector(".zci-nav button.zci-nav-active").textContent).toBe("Context");
+    expect(root.textContent).toContain("mock-greeting-骨架连通");
+
+    // 取数顺序：get_settings（决定初始页）先于页面取数 get_overview
+    const calls = host.received.filter((m) => m.method === "tools/call").map((m) => m.params.name);
+    expect(calls[0]).toBe("get_settings");
+    expect(firstPageDataCall(calls)).toBe("get_overview");
+  });
+
+  it("defaultView 缺省（设置不可用）：回退默认页 Insights，面板不白屏", async () => {
+    const host = createMockHost(window, {
+      toolResults: {
+        get_insights: INSIGHTS_TREND_RESULT(7),
+        get_settings: {
+          content: [{ type: "text", text: JSON.stringify({ available: false, reason: "no-plugin-data-dir", settings: null }) }],
+        },
+      },
+    });
+    await mount(host);
+    const root = document.getElementById("root");
+    await new Promise((r) => setTimeout(r, 20));
+    expect(root.querySelector(".zci-nav button.zci-nav-active").textContent).toBe("Insights");
+    // 趋势图标题为 Insights 页独有内容，证明落在该页且页面已渲染（不白屏）
+    expect(root.textContent).toContain("7 天 token 趋势");
+    expect(root.textContent).toContain("总 token"); // KPI 带已渲染
+  });
+
+  it("trendGranularity=day：get_insights 携带 trendDays=30，图表标题显示实际窗口 30 天", async () => {
+    const host = createMockHost(window, {
+      toolResults: {
+        get_insights: INSIGHTS_TREND_RESULT(30),
+        get_settings: SETTINGS_RESULT({ defaultView: "insights", trendGranularity: "day", estimationDensity: "balanced" }),
+      },
+    });
+    await mount(host);
+    const root = document.getElementById("root");
+    await new Promise((r) => setTimeout(r, 20));
+
+    const insightsCall = host.received.find(
+      (m) => m.method === "tools/call" && m.params?.name === "get_insights",
+    );
+    expect(insightsCall.params.arguments.trendDays).toBe(30);
+    await new Promise((r) => setTimeout(r, 40));
+    // 标题显示实际窗口（载荷桶数），且柱数与窗口一致
+    expect(root.textContent).toContain("30 天 token 趋势");
+    expect(root.querySelectorAll(".zci-trend-bar").length).toBe(30);
+  });
+
+  it("trendGranularity=request（默认）：trendDays=7，标题为 7 天", async () => {
+    const host = createMockHost(window, {
+      toolResults: {
+        get_insights: INSIGHTS_TREND_RESULT(7),
+        get_settings: SETTINGS_RESULT(),
+      },
+    });
+    await mount(host);
+    await new Promise((r) => setTimeout(r, 40));
+    const insightsCall = host.received.find(
+      (m) => m.method === "tools/call" && m.params?.name === "get_insights",
+    );
+    expect(insightsCall.params.arguments.trendDays).toBe(7);
+    const root = document.getElementById("root");
+    expect(root.textContent).toContain("7 天 token 趋势");
+  });
+});
+
+/** 首个页面取数调用（跳过 get_settings / get_data_version 轮询） */
+function firstPageDataCall(calls) {
+  return calls.find((name) => name !== "get_settings" && name !== "get_data_version");
+}

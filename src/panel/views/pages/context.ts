@@ -86,12 +86,15 @@ export const contextPage: PageDefinition = {
       ),
     );
 
-    // 上下文组成条（T3）：独立降级（渲染函数接受 null）
+    // 上下文组成条（T3）：独立降级（渲染函数接受 null）；展示密度按估算密度设置取
+    // （US22 消费方接线：coarse 只显分组 / balanced 逐组数值+占比+锚点脚注（默认）/
+    // detailed 另附块级说明；设置不可用缺省 balanced）
     const compositionResult = await ctx.callTool("get_current_session_composition");
     container.append(
       renderCompositionSection(
         doc,
         compositionResult.ok ? (compositionResult.payload as unknown as CompositionPayload) : null,
+        (ctx.settings?.estimationDensity as "coarse" | "balanced" | "detailed" | undefined) ?? "balanced",
       ),
     );
 

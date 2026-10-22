@@ -211,6 +211,13 @@ body,
   min-height: 1em; /* 无提示时占位，避免卡片高度跳动 */
 }
 
+/* 设置字段效果说明（review 修复：设置已接线为消费方行为，说明各设置实际效果） */
+.zci-settings-hint {
+  margin: 2px 0 0;
+  font-size: 11px;
+  color: var(--color-text-secondary, #888);
+}
+
 /* 手动刷新按钮（T12 兜底）：与页头标题同行 */
 .zci-refresh {
   font: inherit;

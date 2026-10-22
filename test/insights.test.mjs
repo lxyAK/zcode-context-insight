@@ -89,6 +89,22 @@ describe("get_insights（功能缝：直调 execute）", () => {
     expect(payload.anchorTime).toBe(T0 + 52000);
   });
 
+  // 设置消费方接线（review 修复）：面板按 trendGranularity 设置传 trendDays（7/14/30）
+  it("trendDays=9：窗口扩为 9 桶（10-13 的 S_DAY8 进入趋势，KPI 不变）", async () => {
+    const payload = await callTool({ trendDays: 9 });
+    expect(payload.trend).toHaveLength(9);
+    expect(payload.trend[0]).toEqual({ date: "2026-10-13", tokens: 500, requests: 1, sessions: 1 });
+    expect(payload.trend.slice(2)).toEqual(EXPECT_TREND);
+    expect(payload.kpi).toEqual(EXPECT_KPI); // KPI 仍为全局口径
+  });
+
+  it("trendDays 越界按上限截断（999 → 90 桶，与 limit 分页同口径）", async () => {
+    const payload = await callTool({ trendDays: 999 });
+    expect(payload.trend).toHaveLength(90);
+    // 窗口扩到 90 天后，100 天前的 T11 mu_near_1（07-13）仍在窗口外
+    expect(payload.trend.some((d) => d.date === "2026-07-13")).toBe(false);
+  });
+
   it("项目清单含两个项目及会话数（筛选下拉数据源）", async () => {
     const payload = await callTool();
     expect(payload.projects).toEqual([

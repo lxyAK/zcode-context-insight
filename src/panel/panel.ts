@@ -115,8 +115,8 @@ export async function mountPanel(opts: MountOptions): Promise<MountHandle> {
   }
 
   // 设置卡片（T12）：三页之外的固定页尾区（设置持久于 server 侧 settings.json，
-  // 经 get/set_settings 工具读写）；取数在默认页装载发起之后进行（见 mountPanel 尾部），
-  // 保证首个 tools/call 是默认页取数（get_insights）
+  // 经 get/set_settings 工具读写）；取数先于初始页装载（defaultView 决定初始页，US22），
+  // 渲染在初始页装载发起之后进行
   const settingsArea = el(doc, "aside", "zci-settings-area");
 
   container.append(header, nav, content, settingsArea);
@@ -137,6 +137,7 @@ export async function mountPanel(opts: MountOptions): Promise<MountHandle> {
       navigate,
       callTool,
       hostName: init.hostInfo?.name,
+      settings: panelSettings ?? undefined,
     };
     return Promise.resolve(page.mount(ctx)).then(undefined, (err: unknown) => {
       content.replaceChildren(
@@ -161,10 +162,15 @@ export async function mountPanel(opts: MountOptions): Promise<MountHandle> {
 
   refreshButton.addEventListener("click", () => void refresh());
 
-  // 默认页装载（navigate 同步发出首个页面取数 get_insights），设置取数随后并行进行，
-  // 两者都完成后返回句柄（挂载完成即首屏可见，无两页并挂竞态）
-  const initialMount = navigate(DEFAULT_PAGE_ID, {});
+  // 设置取数先于初始页装载（US22 消费方接线）：defaultView 决定初始页——
+  // 设置不可用/缺省时回退 DEFAULT_PAGE_ID（无效值已在 server 设置层回退默认）
   const settings = await bridge.callToolJson<SettingsPayload>("get_settings", {});
+  const panelSettings = settings?.settings ?? null;
+  const initialPageId = panelSettings?.defaultView ?? DEFAULT_PAGE_ID;
+
+  // 初始页装载（首个页面取数随初始页发起），设置卡片随后渲染，
+  // 两者都完成后返回句柄（挂载完成即首屏可见，无两页并挂竞态）
+  const initialMount = navigate(initialPageId, {});
   settingsArea.append(renderSettingsSection(doc, bridge, settings));
   await initialMount;
 

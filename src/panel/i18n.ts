@@ -35,6 +35,10 @@ const zhCN = {
   settingsFieldDefaultView: "默认视图",
   settingsFieldTrendGranularity: "趋势粒度",
   settingsFieldEstimationDensity: "估算密度",
+  /** 各设置的实际效果说明（review 修复：设置已接线为消费方行为，文案如实说明） */
+  settingsHintDefaultView: "打开面板时首先显示的页面",
+  settingsHintTrendGranularity: "Insights 趋势图窗口：逐请求=7 天 / 按轮=14 天 / 按天=30 天",
+  settingsHintEstimationDensity: "组成条展示密度：粗略=仅四分组 / 均衡=分组数值与占比 / 精细=另附块级说明",
   optionViewInsights: "Insights 总览",
   optionViewContext: "Context 仪表盘",
   optionViewFleet: "Fleet 代理网络",
@@ -96,7 +100,7 @@ const zhCN = {
   insightsKpiTotalTokens: "总 token",
   insightsKpiSessions: "会话数",
   insightsKpiActiveDays: "活跃天数",
-  insightsTrendTitle: "7 天 token 趋势",
+  insightsTrendTitle: "{days} 天 token 趋势",
   insightsTrendTooltip: "{date}：{tokens} token / {requests} 请求 / {sessions} 会话",
   insightsSessionsTitle: "会话卡片",
   insightsSessionCount: "共 {count} 个",
@@ -124,7 +128,7 @@ const zhCN = {
   contextKvTokens: "合计 token",
   contextKvRequests: "请求数",
   contextKvRecent: "最近更新",
-  contextSelectedNote: "会话级明细区块（组成/趋势/事件流）由后续工单在此装载。",
+  contextSelectedNote: "已选会话的用量/组成/趋势/事件流按该会话查询。",
 } as const;
 
 export type MessageKey = keyof typeof zhCN;

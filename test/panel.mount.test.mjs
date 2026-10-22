@@ -175,12 +175,15 @@ describe("面板三页骨架与路由（mock 桥）", () => {
     document.body.innerHTML = '<div id="root">Loading…</div>';
   });
 
-  it("默认页为 Insights：首个 tools/call 是 get_insights，三页导航存在", async () => {
+  it("默认页为 Insights：首个 tools/call 是 get_settings（defaultView 依据），首个页面取数是 get_insights，三页导航存在", async () => {
     const host = createMockHost(window, { toolResults: defaultTools() });
     await mountPanel({ win: window, target: host.target });
 
-    const firstCall = host.received.find((m) => m.method === "tools/call");
-    expect(firstCall.params.name).toBe("get_insights");
+    // US22 接线：设置先于初始页装载（defaultView 决定初始页；get_settings 未 mock → 回退默认 insights）
+    const toolCalls = host.received.filter((m) => m.method === "tools/call");
+    expect(toolCalls[0].params.name).toBe("get_settings");
+    const firstPageDataCall = toolCalls.find((m) => m.params.name !== "get_settings" && m.params.name !== "get_data_version");
+    expect(firstPageDataCall.params.name).toBe("get_insights");
 
     // 协议顺序：initialize（2026-01-26）→ initialized 通知 → tools/call
     const init = host.received.find((m) => m.method === "ui/initialize");
@@ -589,6 +592,48 @@ describe("面板组成条（mock 桥）", () => {
     const root = await mountContext(host.target, "组成暂不可用");
     expect(root.textContent).toContain("mock-greeting-骨架连通");
     expect(root.textContent).toContain("4405"); // 用量区不受影响（T5 夹具口径）
+  });
+
+  // ---- 估算密度设置消费（review 修复：estimationDensity 接线到组成条展示密度）----
+  // 密度语义：coarse=只显四分组（无逐组数值/占比） / balanced=数值+占比+锚点脚注（默认） /
+  // detailed=balanced 基础上附块级说明。期望值与 COMPOSITION_RESULT 手算常量同源。
+
+  it("estimationDensity=coarse：图例只显四分组名，不显逐组数值与占比", async () => {
+    const host = createMockHost(window, {
+      toolResults: {
+        get_overview: OVERVIEW_RESULT,
+        get_current_session_composition: COMPOSITION_RESULT(),
+        get_settings: text({ available: true, settings: { defaultView: "insights", trendGranularity: "request", estimationDensity: "coarse" }, defaults: {}, warnings: [] }),
+      },
+    });
+    const root = await mountContext(host.target, () => document.querySelector("svg.zci-comp-bar") !== null);
+
+    // 四分组名仍在（条+图例）
+    expect(root.textContent).toContain("system 提示");
+    expect(root.textContent).toContain("当前轮");
+    // 不显逐组校准数值与占比（151 等仅 balanced 及以上出现）
+    expect(norm(root.textContent)).not.toContain("151");
+    expect(root.textContent).not.toMatch(/24\.2%/);
+    // coarse 无锚点脚注（归一化因子等口径说明收起）
+    expect(root.textContent).not.toContain("req-main-3");
+  });
+
+  it("estimationDensity=detailed：balanced 信息之外附块级说明（锚点消息规模与明细指引）", async () => {
+    const host = createMockHost(window, {
+      toolResults: {
+        get_overview: OVERVIEW_RESULT,
+        get_current_session_composition: COMPOSITION_RESULT(),
+        get_settings: text({ available: true, settings: { defaultView: "insights", trendGranularity: "request", estimationDensity: "detailed" }, defaults: {}, warnings: [] }),
+      },
+    });
+    const root = await mountContext(host.target, () => document.querySelector("svg.zci-comp-bar") !== null);
+
+    // balanced 的信息保留（逐组数值 + 锚点脚注）
+    expect(root.textContent).toContain("151");
+    expect(root.textContent).toContain("req-main-3");
+    // detailed 追加：块级说明（锚点携带的消息条数与块级明细指引）
+    expect(root.textContent).toContain("块级");
+    expect(root.textContent).toContain("8 条消息"); // 锚点 messageCount=8
   });
 });
 

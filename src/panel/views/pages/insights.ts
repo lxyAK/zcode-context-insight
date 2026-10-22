@@ -1,8 +1,8 @@
 /**
- * Insights 页（T8）：KPI 带 + 7 天 token 趋势 + 可筛选会话卡片。
+ * Insights 页（T8）：KPI 带 + 日 token 趋势（窗口按趋势粒度设置取 7/14/30 天）+ 可筛选会话卡片。
  * 数据源 get_insights（全局 KPI/趋势 + 按参数筛选的会话列表）。
  *
- * 7 天趋势为手写柱状图（spec 面板决策：vanilla TS + 手写 SVG/DOM 图表；
+ * 趋势为手写柱状图（spec 面板决策：vanilla TS + 手写 SVG/DOM 图表；
  * T4 的 uPlot 底座（逐请求趋势）合入后如需统一再整合）。
  */
 import type { PageContext, PageDefinition, ToolCallResult } from "../registry.ts";
@@ -38,6 +38,17 @@ interface SessionCardItem {
 
 const DAY_MS = 86400000;
 
+/**
+ * 趋势粒度设置 → 趋势窗口天数（US22 消费方接线）：
+ * 逐请求=7 天（默认）/ 按轮=14 天 / 按天=30 天；未知值回退 7（server 设置层已挡非法枚举，
+ * 此处兜底防止载荷漂移）。
+ */
+const TREND_DAYS_BY_GRANULARITY: Record<string, number> = {
+  request: 7,
+  turn: 14,
+  day: 30,
+};
+
 /** 筛选 UI 状态（页面实例内闭包保存，跨重取数保留） */
 interface FilterState {
   project: string; // "" = 全部
@@ -52,10 +63,12 @@ export const insightsPage: PageDefinition = {
   mount: async (ctx: PageContext) => {
     const filter: FilterState = { project: "", time: "", size: "", sort: "recent" };
     let anchorTime = 0; // 最近一次载荷的锚点（时间筛选以此为基准，确定性）
+    // 趋势窗口按设置取（US22）：trendGranularity → 7/14/30 天，随每次取数传给工具
+    const trendDays = TREND_DAYS_BY_GRANULARITY[ctx.settings?.trendGranularity ?? "request"] ?? 7;
 
     /** 由筛选状态生成工具入参 */
     const args = (): Record<string, unknown> => {
-      const out: Record<string, unknown> = {};
+      const out: Record<string, unknown> = { trendDays };
       if (filter.project) out.project = filter.project;
       if (filter.size) out.minTokens = Number(filter.size);
       if (filter.time && anchorTime > 0) {
@@ -117,13 +130,13 @@ function renderKpiBand(
   return band;
 }
 
-/** 7 天趋势：手写柱状图（每日一柱，值标签 + 日期标签，零日画基线） */
+/** 日趋势：手写柱状图（每日一柱，值标签 + 日期标签，零日画基线）；标题显示实际窗口（载荷桶数） */
 function renderTrend(
   doc: Document,
   days: Array<{ date: string; tokens: number; requests: number; sessions: number }>,
 ): HTMLElement {
   const section = el(doc, "section", "zci-section");
-  section.append(el(doc, "h2", "zci-subtitle", t("insightsTrendTitle")));
+  section.append(el(doc, "h2", "zci-subtitle", t("insightsTrendTitle", { days: days.length })));
   const chart = el(doc, "div", "zci-trend");
   const max = Math.max(...days.map((d) => d.tokens), 1);
   for (const day of days) {

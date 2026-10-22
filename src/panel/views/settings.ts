@@ -30,11 +30,14 @@ export interface SettingsPayload {
 const FIELDS: Array<{
   key: keyof PanelSettings;
   labelKey: MessageKey;
+  /** 该设置的实际效果说明（review 修复：设置已接线为消费方行为，文案如实说明） */
+  hintKey: MessageKey;
   options: Array<{ value: string; labelKey: MessageKey }>;
 }> = [
   {
     key: "defaultView",
     labelKey: "settingsFieldDefaultView",
+    hintKey: "settingsHintDefaultView",
     options: [
       { value: "insights", labelKey: "optionViewInsights" },
       { value: "context", labelKey: "optionViewContext" },
@@ -44,6 +47,7 @@ const FIELDS: Array<{
   {
     key: "trendGranularity",
     labelKey: "settingsFieldTrendGranularity",
+    hintKey: "settingsHintTrendGranularity",
     options: [
       { value: "request", labelKey: "optionGranularityRequest" },
       { value: "turn", labelKey: "optionGranularityTurn" },
@@ -53,6 +57,7 @@ const FIELDS: Array<{
   {
     key: "estimationDensity",
     labelKey: "settingsFieldEstimationDensity",
+    hintKey: "settingsHintEstimationDensity",
     options: [
       { value: "coarse", labelKey: "optionDensityCoarse" },
       { value: "balanced", labelKey: "optionDensityBalanced" },
@@ -108,7 +113,8 @@ export function renderSettingsSection(
     });
     selects.set(field.key, select);
     row.append(select);
-    section.append(row);
+    // 效果说明随行展示（行后独立段落，避免挤入 label+select 的 flex 行）
+    section.append(row, el(doc, "p", "zci-settings-hint", t(field.hintKey)));
   }
 
   section.append(status);
