@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" role="img" aria-label="Context Insight">
+  <title>Context Insight</title>
+  <!-- 底板：深色圆角方块 -->
+  <rect width="128" height="128" rx="28" fill="#101828"/>
+  <!-- 上下文组成条：system / 工具定义 / 历史消息 / 当前轮（对应 GLOSSARY 四分组） -->
+  <rect x="24" y="30" width="34" height="20" rx="3" fill="#38BDF8"/>
+  <rect x="62" y="30" width="16" height="20" rx="3" fill="#A78BFA"/>
+  <rect x="82" y="30" width="14" height="20" rx="3" fill="#34D399"/>
+  <rect x="100" y="30" width="4" height="20" rx="2" fill="#FBBF24"/>
+  <!-- 逐请求 token 趋势线 -->
+  <polyline points="24,88 42,80 58,92 76,72 92,80 104,62" fill="none" stroke="#7DD3FC" stroke-width="7" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>

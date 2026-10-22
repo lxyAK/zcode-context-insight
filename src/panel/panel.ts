@@ -4,6 +4,7 @@
  * 的 PAGES 注册表挂载（后续工单的扩展缝）；本层只管桥协议、壳与路由。
  */
 import pkg from "../../package.json";
+import { t } from "./i18n.ts";
 import { BridgeClient, PostMessageTransport } from "./bridge.ts";
 import type { PostTarget } from "./bridge.ts";
 import { el } from "./views/dom.ts";
@@ -28,7 +29,7 @@ export interface MountOptions {
 
 export async function mountPanel(opts: MountOptions): Promise<void> {
   const container = opts.container ?? opts.win.document.getElementById("root");
-  if (!container) throw new Error("面板缺少 #root 容器");
+  if (!container) throw new Error(t("noRootContainer"));
 
   const transport = new PostMessageTransport(opts.win, opts.target ?? opts.win.parent);
   const bridge = new BridgeClient(transport);
@@ -56,7 +57,7 @@ export async function mountPanel(opts: MountOptions): Promise<void> {
         arguments: args ?? {},
       })) as { content?: Array<{ type: string; text?: string }> };
       const text = result.content?.find((c) => c.type === "text")?.text;
-      if (!text) return { ok: false, error: `${name} 未返回文本内容` };
+      if (!text) return { ok: false, error: t("overviewNoText") };
       return { ok: true, payload: JSON.parse(text) as Record<string, unknown> };
     } catch (err) {
       return { ok: false, error: err instanceof Error ? err.message : String(err) };
@@ -69,8 +70,8 @@ export async function mountPanel(opts: MountOptions): Promise<void> {
 
   const header = el(doc, "header", "zci-header");
   header.append(
-    el(doc, "h1", "zci-title", "Context Insight"),
-    el(doc, "span", "zci-version", `已连接 ${init.hostInfo?.name ?? "host"}`),
+    el(doc, "h1", "zci-title", t("brandName")),
+    el(doc, "span", "zci-version", t("headerConnected", { host: init.hostInfo?.name ?? "host" })),
   );
 
   const nav = el(doc, "nav", "zci-nav");
@@ -105,7 +106,10 @@ export async function mountPanel(opts: MountOptions): Promise<void> {
           doc,
           "p",
           "zci-error",
-          `页面加载失败（${page.title}）: ${err instanceof Error ? err.message : String(err)}`,
+          t("pageLoadFailed", {
+            page: page.title,
+            message: err instanceof Error ? err.message : String(err),
+          }),
         ),
       );
     });

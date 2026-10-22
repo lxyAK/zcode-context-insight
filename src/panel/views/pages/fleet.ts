@@ -4,15 +4,16 @@
  */
 import type { PageDefinition } from "../registry.ts";
 import { el } from "../dom.ts";
+import { t } from "../../i18n.ts";
 
 export const fleetPage: PageDefinition = {
   id: "fleet",
-  title: "Fleet",
+  title: t("navFleet"),
   mount: (ctx) => {
     const section = el(ctx.doc, "section", "zci-section");
     section.append(
-      el(ctx.doc, "h2", "zci-subtitle", "Fleet 代理网络"),
-      el(ctx.doc, "p", "zci-status", "待装载：主会话与子代理的父子树及节点用量卡片（T10）。"),
+      el(ctx.doc, "h2", "zci-subtitle", t("fleetTitle")),
+      el(ctx.doc, "p", "zci-status", t("fleetPlaceholder")),
     );
     ctx.container.append(section);
   },

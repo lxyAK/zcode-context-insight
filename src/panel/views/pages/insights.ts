@@ -7,6 +7,7 @@
  */
 import type { PageContext, PageDefinition, ToolCallResult } from "../registry.ts";
 import { el, fmtInt, fmtDateTime, shortDir } from "../dom.ts";
+import { t } from "../../i18n.ts";
 
 /** get_insights 载荷（工具 structuredContent 形状的类型化子集） */
 interface InsightsPayload {
@@ -66,7 +67,7 @@ export const insightsPage: PageDefinition = {
 
     const reload = async () => {
       const { container, doc } = ctx;
-      container.replaceChildren(el(doc, "p", "zci-status", "加载中…"));
+      container.replaceChildren(el(doc, "p", "zci-status", t("loading")));
       const result: ToolCallResult = await ctx.callTool("get_insights", args());
       container.replaceChildren();
       if (!result.ok) {
@@ -101,7 +102,11 @@ function renderKpiBand(
     c.append(el(doc, "div", "zci-kpi-value", fmtInt(value)), el(doc, "div", "zci-kpi-label", label));
     return c;
   };
-  band.append(card("总 token", kpi.totalTokens), card("会话数", kpi.totalSessions), card("活跃天数", kpi.activeDays));
+  band.append(
+    card(t("insightsKpiTotalTokens"), kpi.totalTokens),
+    card(t("insightsKpiSessions"), kpi.totalSessions),
+    card(t("insightsKpiActiveDays"), kpi.activeDays),
+  );
   return band;
 }
 
@@ -111,7 +116,7 @@ function renderTrend(
   days: Array<{ date: string; tokens: number; requests: number; sessions: number }>,
 ): HTMLElement {
   const section = el(doc, "section", "zci-section");
-  section.append(el(doc, "h2", "zci-subtitle", "7 天 token 趋势"));
+  section.append(el(doc, "h2", "zci-subtitle", t("insightsTrendTitle")));
   const chart = el(doc, "div", "zci-trend");
   const max = Math.max(...days.map((d) => d.tokens), 1);
   for (const day of days) {
@@ -119,7 +124,12 @@ function renderTrend(
     bar.setAttribute("data-date", day.date);
     bar.setAttribute(
       "title",
-      `${day.date}：${fmtInt(day.tokens)} token / ${day.requests} 请求 / ${day.sessions} 会话`,
+      t("insightsTrendTooltip", {
+        date: day.date,
+        tokens: fmtInt(day.tokens),
+        requests: day.requests,
+        sessions: day.sessions,
+      }),
     );
     const fill = el(doc, "div", "zci-trend-fill");
     // 峰值柱满高，零日保留 2px 基线
@@ -144,8 +154,8 @@ function renderSessionCards(
   ctx: PageContext,
 ): HTMLElement {
   const section = el(doc, "section", "zci-section");
-  const title = el(doc, "h2", "zci-subtitle", "会话卡片");
-  title.append(el(doc, "span", "zci-count", `共 ${fmtInt(payload.sessions.total)} 个`));
+  const title = el(doc, "h2", "zci-subtitle", t("insightsSessionsTitle"));
+  title.append(el(doc, "span", "zci-count", t("insightsSessionCount", { count: fmtInt(payload.sessions.total) })));
   section.append(title);
 
   // 筛选行（option 的 value 一律显式 setAttribute：未设时 DOM 回退取文本，不可靠）
@@ -156,24 +166,28 @@ function renderSessionCards(
     return opt;
   };
   const projectSelect = el(doc, "select", "zci-filter zci-filter-project") as HTMLSelectElement;
-  projectSelect.append(option("", "全部项目"));
+  projectSelect.append(option("", t("insightsFilterAllProjects")));
   for (const p of payload.projects) {
     projectSelect.append(option(p.id, `${shortDir(p.directory)} (${p.sessions})`));
   }
   projectSelect.value = filter.project;
 
   const timeSelect = el(doc, "select", "zci-filter zci-filter-time") as HTMLSelectElement;
-  for (const [value, label] of [["", "全部时间"], ["7", "最近 7 天"], ["30", "最近 30 天"]] as const) {
+  for (const [value, label] of [
+    ["", t("insightsFilterAllTime")],
+    ["7", t("insightsFilterLast7")],
+    ["30", t("insightsFilterLast30")],
+  ] as const) {
     timeSelect.append(option(value, label));
   }
   timeSelect.value = filter.time;
 
   const sizeSelect = el(doc, "select", "zci-filter zci-filter-size") as HTMLSelectElement;
   for (const [value, label] of [
-    ["", "全部规模"],
-    ["1000", "≥1k token"],
-    ["10000", "≥10k token"],
-    ["100000", "≥100k token"],
+    ["", t("insightsFilterAllSizes")],
+    ["1000", t("insightsFilterSize1k")],
+    ["10000", t("insightsFilterSize10k")],
+    ["100000", t("insightsFilterSize100k")],
   ] as const) {
     sizeSelect.append(option(value, label));
   }
@@ -181,8 +195,8 @@ function renderSessionCards(
 
   const sortSelect = el(doc, "select", "zci-filter zci-filter-sort") as HTMLSelectElement;
   for (const [value, label] of [
-    ["recent", "按时间排序"],
-    ["tokens", "按规模排序"],
+    ["recent", t("insightsFilterSortRecent")],
+    ["tokens", t("insightsFilterSortTokens")],
   ] as const) {
     sortSelect.append(option(value, label));
   }
@@ -203,7 +217,7 @@ function renderSessionCards(
   // 卡片列表
   const list = el(doc, "div", "zci-session-list");
   if (payload.sessions.items.length === 0) {
-    list.append(el(doc, "p", "zci-status", "无符合筛选条件的会话"));
+    list.append(el(doc, "p", "zci-status", t("insightsNoSessions")));
   }
   for (const item of payload.sessions.items) {
     list.append(renderSessionCard(doc, item, ctx));
@@ -220,12 +234,21 @@ function renderSessionCard(doc: Document, item: SessionCardItem, ctx: PageContex
   const head = el(doc, "div", "zci-session-head");
   head.append(el(doc, "span", "zci-session-title", item.title));
   if (item.taskType !== "interactive") {
-    head.append(el(doc, "span", "zci-badge zci-badge-sub", "子代理"));
+    head.append(el(doc, "span", "zci-badge zci-badge-sub", t("insightsSubagentBadge")));
   }
   card.append(head);
   card.append(
-    el(doc, "div", "zci-session-meta", `${shortDir(item.directory)} · ${fmtDateTime(item.timeUpdated)} · ${fmtInt(item.requests)} 请求`),
-    el(doc, "div", "zci-session-tokens", `${fmtInt(item.totalTokens)} token`),
+    el(
+      doc,
+      "div",
+      "zci-session-meta",
+      t("insightsSessionMeta", {
+        dir: shortDir(item.directory),
+        time: fmtDateTime(item.timeUpdated),
+        requests: fmtInt(item.requests),
+      }),
+    ),
+    el(doc, "div", "zci-session-tokens", t("insightsSessionTokens", { value: fmtInt(item.totalTokens) })),
   );
 
   card.addEventListener("click", () => {
@@ -246,14 +269,14 @@ function renderSessionCard(doc: Document, item: SessionCardItem, ctx: PageContex
 function renderUnavailable(doc: Document, reason: string): HTMLElement {
   const section = el(doc, "section", "zci-section");
   section.append(
-    el(doc, "h2", "zci-subtitle", "Insights 总览暂不可用"),
-    el(doc, "p", "zci-status", `原因：${reason}`),
+    el(doc, "h2", "zci-subtitle", t("insightsUnavailableTitle")),
+    el(doc, "p", "zci-status", t("insightsUnavailableReason", { reason })),
   );
   return section;
 }
 
 function renderToolError(doc: Document, toolName: string, message: string): HTMLElement {
   const section = el(doc, "section", "zci-section");
-  section.append(el(doc, "p", "zci-error", `工具调用失败（${toolName}）: ${message}`));
+  section.append(el(doc, "p", "zci-error", t("toolCallFailedTool", { tool: toolName, message })));
   return section;
 }
