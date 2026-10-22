@@ -67,9 +67,13 @@ async function buildPanel() {
   const template = await readFile(join(repoRoot, "src/panel/template.html"), "utf8");
   // 防止 JS 文本中出现 </script> 提前闭合标签
   const safeJs = js.replace(/<\/script/gi, "<\\/script");
+  // 替换串必须走函数形式：字符串形式会把 $&、$` 等解释为特殊模式。
+  // 0.1.1–0.1.4 事故：uPlot 压缩产物中变量 $ 的 && 连写构成 $&，被替换成占位符
+  // <!--ZCI_JS--> 注入产物，<!-- 在经典脚本中开启 HTML 注释吞掉单行脚本其余部分，
+  // 面板静默死亡、宿主 ui/initialize 握手超时（回归测试：test/panel.artifact.test.mjs）
   const html = template
-    .replace("<!--ZCI_CSS-->", `<style>\n${css}\n</style>`)
-    .replace("<!--ZCI_JS-->", `<script>\n${safeJs}\n</script>`);
+    .replace("<!--ZCI_CSS-->", () => `<style>\n${css}\n</style>`)
+    .replace("<!--ZCI_JS-->", () => `<script>\n${safeJs}\n</script>`);
   await writeFile(join(distDir, "ui", "panel.html"), html, "utf8");
 }
 
