@@ -122,11 +122,17 @@ function insertSessions(db) {
 }
 
 /**
- * model_usage 行集。S_MAIN 的期望聚合（全请求）：
- *   requests=3, input=1510, output=305, reasoning=50,
- *   cacheRead=1200, cacheWrite=100, computedTotal=1815, ttftMs=2700
- * 其中 main_turn 小计：requests=2, input=1500, output=300, computedTotal=1800；
+ * model_usage 行集。S_MAIN 的期望聚合（全请求 6 行）：
+ *   requests=6, input=4000, output=405, reasoning=50,
+ *   cacheRead=3400, cacheWrite=100, computedTotal=4405,
+ *   ttft 非空合计=4200（mu_main_5 失败行 ttft 为 NULL，SUM 不计）
+ * 其中 main_turn 小计：requests=5, input=3990, output=400, computedTotal=4390；
  * session_title 小计：requests=1, input=10, output=5, computedTotal=15。
+ * T5 统计口径期望（手算，见 test/session-stats.test.mjs 注释）：
+ *   缓存命中率 = cacheRead/input = 3400/4000 = 0.85；
+ *   重试计数 = SUM(retry_count) = mu_main_4 的 2；
+ *   超限计数 = SUM(context_exceeded) = mu_main_5 的 1；
+ *   TTFT 样本（非空排序）[200,600,900,1000,1500]，n=5。
  */
 function insertModelUsage(db) {
   const stmt = db.prepare(
@@ -134,20 +140,34 @@ function insertModelUsage(db) {
        provider_id, model_id, task_type, status,
        started_at, completed_at, duration_ms, time_to_first_token_ms,
        input_tokens, output_tokens, reasoning_tokens,
-       cache_creation_input_tokens, cache_read_input_tokens, computed_total_tokens)
-     VALUES (?, ?, ?, ?, ?, 'account:fixture', 'GLM-5.3', ?, 'completed',
-       ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       cache_creation_input_tokens, cache_read_input_tokens, computed_total_tokens,
+       retry_count, retryable, context_exceeded, error_type)
+     VALUES (?, ?, ?, ?, ?, 'account:fixture', 'GLM-5.3', ?, ?,
+       ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   );
-  const row = (id, session, turn, source, taskType, startedAt, dur, ttft, inp, out, reason, cacheW, cacheR, total) =>
-    stmt.run(id, `lrq_${id}`, session, turn, source, taskType, startedAt, startedAt + dur, dur, ttft, inp, out, reason, cacheW, cacheR, total);
+  const row = (id, session, turn, source, taskType, startedAt, dur, ttft, inp, out, reason, cacheW, cacheR, total,
+    extra = {}) =>
+    stmt.run(id, `lrq_${id}`, session, turn, source, taskType, extra.status ?? "completed",
+      startedAt, startedAt + dur, dur, ttft, inp, out, reason, cacheW, cacheR, total,
+      extra.retryCount ?? null, extra.retryable ?? null, extra.contextExceeded ?? null, extra.errorType ?? null);
 
-  // S_MAIN：两次 main_turn + 一次 session_title
+  // S_MAIN：四次 main_turn + 一次 session_title + 一次失败的超限请求
   row("mu_main_1", S_MAIN, "turn_fixture_1", "main_turn", "interactive",
     T0 + 10000, 5000, 1500, 1000, 200, 50, 100, 800, 1200);
   row("mu_main_2", S_MAIN, "turn_fixture_1", "main_turn", "interactive",
     T0 + 20000, 3000, 1000, 500, 100, 0, 0, 400, 600);
   row("mu_main_3", S_MAIN, null, "session_title", "interactive",
     T0 + 5000, 200, 200, 10, 5, 0, 0, 0, 15);
+  // T5 重试场景：重试 2 次后成功（retry_count 计入会话重试总数）
+  row("mu_main_4", S_MAIN, "turn_fixture_4", "main_turn", "interactive",
+    T0 + 30000, 2500, 900, 400, 80, 0, 0, 300, 480,
+    { retryCount: 2, retryable: 1 });
+  // T5 上下文超限场景：error 行无首 token（ttft NULL，不进 TTFT 分布）
+  row("mu_main_5", S_MAIN, "turn_fixture_5", "main_turn", "interactive",
+    T0 + 40000, 1200, null, 2000, 0, 0, 0, 1900, 2000,
+    { status: "error", contextExceeded: 1, errorType: "context_length_exceeded" });
+  row("mu_main_6", S_MAIN, "turn_fixture_6", "main_turn", "interactive",
+    T0 + 45000, 800, 600, 90, 20, 0, 0, 0, 110);
   // S_OLD：一行
   row("mu_old_1", S_OLD, "turn_fixture_old", "main_turn", "interactive",
     T0 + 1000, 2000, 800, 300, 50, 0, 0, 250, 350);

@@ -24,7 +24,8 @@ const S_OLD = "session_00000000000000000000000000000002";
 const T0 = 1792600000000;
 
 /**
- * S_MAIN 的逐请求时间线手算期望（model_usage 按 started_at 升序）：
+ * S_MAIN 的逐请求时间线手算期望（model_usage 按 started_at 升序，T5 并行工单加入
+ * mu_main_4 重试 / mu_main_5 超限失败 / mu_main_6 三行后共 6 行）：
  * 行集见 make-fixtures.mjs insertModelUsage —— mu_main_3(T0+5000) 先于 mu_main_1(T0+10000)。
  */
 const MAIN_REQUESTS = [
@@ -70,6 +71,48 @@ const MAIN_REQUESTS = [
     computedTotalTokens: 600,
     contextExceeded: false,
   },
+  {
+    index: 3,
+    startedAt: T0 + 30000, // mu_main_4（T5 重试场景行）
+    querySource: "main_turn",
+    modelId: "GLM-5.3",
+    status: "completed",
+    inputTokens: 400,
+    outputTokens: 80,
+    reasoningTokens: 0,
+    cacheReadTokens: 300,
+    cacheWriteTokens: 0,
+    computedTotalTokens: 480,
+    contextExceeded: false,
+  },
+  {
+    index: 4,
+    startedAt: T0 + 40000, // mu_main_5（T5 上下文超限失败行）
+    querySource: "main_turn",
+    modelId: "GLM-5.3",
+    status: "error",
+    inputTokens: 2000,
+    outputTokens: 0,
+    reasoningTokens: 0,
+    cacheReadTokens: 1900,
+    cacheWriteTokens: 0,
+    computedTotalTokens: 2000,
+    contextExceeded: true,
+  },
+  {
+    index: 5,
+    startedAt: T0 + 45000, // mu_main_6
+    querySource: "main_turn",
+    modelId: "GLM-5.3",
+    status: "completed",
+    inputTokens: 90,
+    outputTokens: 20,
+    reasoningTokens: 0,
+    cacheReadTokens: 0,
+    cacheWriteTokens: 0,
+    computedTotalTokens: 110,
+    contextExceeded: false,
+  },
 ];
 
 /** 写一个临时心跳文件，返回路径（测试后由调用方清理目录） */
@@ -111,7 +154,7 @@ describe("get_session_timeline（功能缝：直调 execute）", () => {
         truePostCompactTokenCount: 300,
         summarizedMessageCount: 2,
         keptMessageCount: 1,
-        requestIndex: 2, // T0+55000 晚于全部 3 个请求 → 关联到末尾请求（index 2）
+        requestIndex: 5, // T0+55000 晚于全部 6 个请求（含 T5 追加行）→ 关联到末尾请求（index 5）
       },
     ]);
   });
