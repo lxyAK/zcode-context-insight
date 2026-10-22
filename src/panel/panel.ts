@@ -27,6 +27,7 @@ import { t } from "./i18n.ts";
 import { BridgeClient, PostMessageTransport } from "./bridge.ts";
 import type { PostTarget } from "./bridge.ts";
 import { renderStatsSection, type SessionStatsPayload } from "./views/stats.ts";
+import { renderFleetSection, type FleetTreePayload } from "./views/fleet.ts";
 
 /** MCP Apps 协议版本（研究笔记 02 §2，与官方面板一致） */
 export const PROTOCOL_VERSION = "2026-01-26";
@@ -101,7 +102,20 @@ export async function mountPanel(opts: MountOptions): Promise<void> {
     stats = null; // 桥错误 → 降级提示
   }
 
-  renderOverview(container, init, JSON.parse(textBlock.text), usage, stats);
+  // Fleet 代理网络树（T10）：刷新式静态树，失败不炸既有区
+  let fleet: FleetTreePayload | null = null;
+  try {
+    const fleetResult = (await bridge.request("tools/call", {
+      name: "get_fleet_tree",
+      arguments: {},
+    })) as { content?: Array<{ type: string; text?: string }> };
+    const fleetText = fleetResult.content?.find((c) => c.type === "text")?.text;
+    fleet = fleetText ? (JSON.parse(fleetText) as FleetTreePayload) : null;
+  } catch {
+    fleet = null; // 桥错误 → 降级提示
+  }
+
+  renderOverview(container, init, JSON.parse(textBlock.text), usage, stats, fleet);
 }
 
 function el(
@@ -122,6 +136,7 @@ function renderOverview(
   payload: { plugin?: string; version?: string; server?: string; greeting?: string },
   usage: UsagePayload | null,
   stats: SessionStatsPayload | null,
+  fleet: FleetTreePayload | null,
 ): void {
   const doc = container.ownerDocument;
   container.replaceChildren();
@@ -147,7 +162,7 @@ function renderOverview(
 
   const footer = el(doc, "footer", "zci-footer", t("footerSkeleton"));
 
-  container.append(header, section, renderUsageSection(doc, usage, kv), renderStatsSection(doc, stats), footer);
+  container.append(header, section, renderUsageSection(doc, usage, kv), renderStatsSection(doc, stats), renderFleetSection(doc, fleet), footer);
 }
 
 /** 当前会话精确用量区（T2）：数字 + 识别来源标注（心跳精确 / 推断）；不可用时降级提示 */

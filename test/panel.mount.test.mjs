@@ -350,3 +350,172 @@ describe("统计卡（get_session_stats → Context/Token/Timing 三组卡）", 
     expect(root.textContent).toContain("统计暂不可用");
   });
 });
+
+const FLEET_RESULT = (root, rootSessionSource = "heartbeat") => ({
+  content: [
+    {
+      type: "text",
+      text: JSON.stringify({ available: true, rootSessionSource, root }),
+    },
+  ],
+});
+
+/** Fleet 树节点 mock 构造（形状对照 src/server/fleet.ts 的 FleetNode） */
+function fleetNode(id, title, taskType, usage, children = []) {
+  return { id, title, taskType, parentId: null, timeCreated: 0, timeUpdated: 0, usage, children };
+}
+
+// 与 get_fleet_tree 夹具口径一致的三层树 mock（真值来源：test/fleet-tree.test.mjs 手算）
+const FLEET_TREE = fleetNode(
+  "session_00000000000000000000000000000001",
+  "mock 主会话",
+  "interactive",
+  {
+    requests: 6,
+    inputTokens: 4000,
+    outputTokens: 405,
+    computedTotalTokens: 4405,
+    durationMsTotal: 12700,
+    errorRequests: 1,
+    lastRequestStatus: "completed",
+  },
+  [
+    fleetNode(
+      "sess_subagent_agent_00000000-0000-4000-8000-000000000003",
+      "mock 子代理",
+      "subagent_child",
+      {
+        requests: 1,
+        inputTokens: 2000,
+        outputTokens: 300,
+        computedTotalTokens: 2300,
+        durationMsTotal: 4000,
+        errorRequests: 0,
+        lastRequestStatus: "completed",
+      },
+      [
+        fleetNode(
+          "sess_subagent_agent_00000000-0000-4000-8000-000000000004",
+          "mock 孙代理",
+          "subagent_child",
+          {
+            requests: 2,
+            inputTokens: 1100,
+            outputTokens: 100,
+            computedTotalTokens: 1200,
+            durationMsTotal: 1800,
+            errorRequests: 1,
+            lastRequestStatus: "error",
+          },
+        ),
+      ],
+    ),
+  ],
+);
+
+/** 按节点标题找 Fleet 节点卡片元素 */
+function fleetCardByTitle(root, title) {
+  return [...root.querySelectorAll(".zci-fleet-node")].find((c) =>
+    c.querySelector(".zci-fleet-node-title")?.textContent.includes(title),
+  );
+}
+
+describe("Fleet 代理网络树（get_fleet_tree → 树形渲染 + 节点卡片）", () => {
+  beforeEach(() => {
+    document.body.innerHTML = '<div id="root">Loading…</div>';
+  });
+
+  it("三层树渲染：节点卡片含 token/请求耗时/状态，DOM 嵌套反映父子关系", async () => {
+    const host = createMockHost(window, {
+      toolResults: {
+        get_overview: OVERVIEW_RESULT,
+        get_fleet_tree: FLEET_RESULT(FLEET_TREE),
+      },
+    });
+    await mountPanel({ win: window, target: host.target });
+    const root = document.getElementById("root");
+
+    // 发出了 Fleet 工具调用
+    const fleetCall = host.received.find(
+      (m) => m.method === "tools/call" && m.params?.name === "get_fleet_tree",
+    );
+    expect(fleetCall).toBeTruthy();
+
+    // 三个节点全部渲染（含孙代理）
+    expect(fleetCardByTitle(root, "mock 主会话")).toBeTruthy();
+    expect(fleetCardByTitle(root, "mock 子代理")).toBeTruthy();
+    expect(fleetCardByTitle(root, "mock 孙代理")).toBeTruthy();
+
+    // 节点卡片：token / 请求耗时 / 状态（mock 返回原样呈现）
+    const mainCard = fleetCardByTitle(root, "mock 主会话");
+    expect(mainCard.textContent).toContain("4405"); // 总量 token
+    expect(mainCard.textContent).toContain("12700"); // 请求耗时合计
+    expect(mainCard.textContent).toContain("已完成"); // lastRequestStatus=completed
+    const subsubCard = fleetCardByTitle(root, "mock 孙代理");
+    expect(subsubCard.textContent).toContain("错误"); // lastRequestStatus=error
+
+    // 树形嵌套：孙代理卡片是子代理卡片的后代，子代理是主会话的后代
+    const subCard = fleetCardByTitle(root, "mock 子代理");
+    expect(subCard.contains(subsubCard)).toBe(true);
+    expect(mainCard.contains(subCard)).toBe(true);
+  });
+
+  it("单节点树（无子代理会话）：只渲染根节点，无子层容器", async () => {
+    const single = fleetNode("session_00000000000000000000000000000002", "mock 无子会话", "interactive", {
+      requests: 1,
+      inputTokens: 300,
+      outputTokens: 50,
+      computedTotalTokens: 350,
+      durationMsTotal: 2000,
+      errorRequests: 0,
+      lastRequestStatus: "completed",
+    });
+    const host = createMockHost(window, {
+      toolResults: {
+        get_overview: OVERVIEW_RESULT,
+        get_fleet_tree: FLEET_RESULT(single, "explicit"),
+      },
+    });
+    await mountPanel({ win: window, target: host.target });
+    const root = document.getElementById("root");
+
+    const nodes = root.querySelectorAll(".zci-fleet-node");
+    expect(nodes).toHaveLength(1); // 单节点树
+    expect(nodes[0].textContent).toContain("mock 无子会话");
+    expect(nodes[0].textContent).toContain("350"); // 用量数字仍在卡片上
+  });
+
+  it("Fleet 不可用（available=false）：降级提示而非白屏，其余区仍渲染", async () => {
+    const host = createMockHost(window, {
+      toolResults: {
+        get_overview: OVERVIEW_RESULT,
+        get_fleet_tree: {
+          content: [
+            {
+              type: "text",
+              text: JSON.stringify({ available: false, reason: "db-not-found", rootSessionSource: null, root: null }),
+            },
+          ],
+        },
+      },
+    });
+    await mountPanel({ win: window, target: host.target });
+    const root = document.getElementById("root");
+    expect(root.textContent).toContain("mock-greeting-骨架连通"); // 概览不受影响
+    expect(root.textContent).toContain("代理网络暂不可用");
+  });
+
+  it("Fleet 工具调用失败（桥错误）：降级提示，用量区仍渲染", async () => {
+    const host = createMockHost(window, {
+      toolResults: {
+        get_overview: OVERVIEW_RESULT,
+        get_current_session_usage: USAGE_RESULT(HEARTBEAT_SESSION, MOCK_USAGE),
+      },
+      toolErrorNames: ["get_fleet_tree"],
+    });
+    await mountPanel({ win: window, target: host.target });
+    const root = document.getElementById("root");
+    expect(root.textContent).toContain("心跳精确"); // 用量区不受影响
+    expect(root.textContent).toContain("代理网络暂不可用");
+  });
+});

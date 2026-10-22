@@ -154,3 +154,101 @@ body,
   font-weight: 600;
   color: var(--color-text-primary, #222);
 }
+
+/* Fleet 代理网络树（T10）：静态树 + 节点卡片，颜色一律引用宿主 --color-* 变量 */
+
+.zci-fleet-tree,
+.zci-fleet-children {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.zci-fleet-children {
+  margin-left: 14px;
+  padding-left: 10px;
+  border-left: 1px solid var(--color-border-default, #ddd);
+}
+
+.zci-fleet-node {
+  margin: 4px 0;
+  padding: 6px 8px;
+  border: 1px solid var(--color-border-default, #ddd);
+  border-radius: 6px;
+  background: var(--color-background-secondary, #f7f7f7);
+}
+
+.zci-fleet-node-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  margin-bottom: 4px;
+}
+
+.zci-fleet-node-title {
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 40%;
+}
+
+.zci-fleet-task {
+  font-size: 10px;
+  padding: 1px 6px;
+  border-radius: 999px;
+  color: var(--color-text-secondary, #888);
+  border: 1px solid var(--color-border-default, #ddd);
+}
+
+.zci-fleet-status {
+  font-size: 10px;
+  font-weight: 500;
+  padding: 1px 6px;
+  border-radius: 999px;
+  margin-left: auto;
+}
+
+.zci-fleet-status-completed {
+  color: var(--color-text-on-success, #fff);
+  background: var(--color-success, #27ae60);
+}
+
+.zci-fleet-status-running {
+  color: var(--color-text-on-accent, #fff);
+  background: var(--color-accent, #2980b9);
+}
+
+.zci-fleet-status-error {
+  color: var(--color-text-on-danger, #fff);
+  background: var(--color-danger, #c0392b);
+}
+
+.zci-fleet-status-cancelled,
+.zci-fleet-status-idle {
+  color: var(--color-text-secondary, #888);
+  border: 1px solid var(--color-border-default, #ddd);
+}
+
+.zci-fleet-metrics {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+}
+
+.zci-fleet-metric {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 4px;
+}
+
+.zci-fleet-metric-label {
+  font-size: 11px;
+  color: var(--color-text-secondary, #888);
+}
+
+.zci-fleet-metric-value {
+  font-family: ui-monospace, Consolas, monospace;
+  font-weight: 600;
+}
