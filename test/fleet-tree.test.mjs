@@ -21,6 +21,8 @@ const S_MAIN = "session_00000000000000000000000000000001";
 const S_OLD = "session_00000000000000000000000000000002";
 const S_SUB = "sess_subagent_agent_00000000-0000-4000-8000-000000000003";
 const S_SUBSUB = "sess_subagent_agent_00000000-0000-4000-8000-000000000004";
+// T11 并入的接近压缩会话：time_updated（T0+90000）全场最新 → 无心跳兜底改选它（合并时本测试同步改述）
+const S_NEAR = "session_00000000000000000000000000000006";
 
 // 三层树各节点的手算聚合（行集见 make-fixtures.mjs 注释）：
 // S_MAIN（6 行）：requests=6, input=4000, output=405, computedTotal=4405,
@@ -148,16 +150,17 @@ describe("get_fleet_tree（功能缝：直调 execute）", () => {
     }
   });
 
-  it("无心跳：兜底最近活跃 interactive 会话（S_MAIN）为根并标注 inferred", async () => {
+  it("无心跳：兜底最近活跃 interactive 会话（S_NEAR）为根并标注 inferred", async () => {
     const dir = mkdtempSync(join(tmpdir(), "zci-fleet-"));
     try {
       const payload = await callTool({ dbPath: fixtureDb, heartbeatPath: join(dir, "absent.json") });
 
       expect(payload.available).toBe(true);
       expect(payload.rootSessionSource).toBe("inferred");
-      // 兜底过滤 task_type 后仍选中 S_MAIN（夹具中 S_SUB/S_SUBSUB 的 time_updated 更晚）
-      expect(payload.root.id).toBe(S_MAIN);
-      expect(payload.root.children).toHaveLength(1); // 与心跳根同树
+      // T11 并入 S_NEAR（time_updated=T0+90000，全场最新 interactive）后兜底改选它：
+      // S_NEAR 无子代理 → 单节点树（S_SUB/S_SUBSUB 挂 S_MAIN 下，不在树中）
+      expect(payload.root.id).toBe(S_NEAR);
+      expect(payload.root.children).toEqual([]);
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }

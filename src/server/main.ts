@@ -19,6 +19,7 @@ import { createCurrentSessionCompositionTool } from "./tools/get_current_session
 import { createListSessionRequestsTool, createGetRequestDetailTool } from "./tools/request-detail.ts";
 import { createSessionStatsTool } from "./tools/get_session_stats.ts";
 import { createFleetTreeTool } from "./tools/get_fleet_tree.ts";
+import { createCurrentSessionReportTool } from "./tools/get_current_session_report.ts";
 import { createSessionEventsTool } from "./tools/get_session_events.ts";
 import { createSessionFileActivityTool } from "./tools/get_session_file_activity.ts";
 import { createInsightsTool } from "./tools/get_insights.ts";
@@ -32,6 +33,7 @@ const tools: ToolDefinition[] = [
   createCurrentSessionCompositionTool(),
   createSessionStatsTool(),
   createFleetTreeTool(),
+  createCurrentSessionReportTool(),
   createSessionEventsTool(),
   createSessionFileActivityTool(),
   createInsightsTool(),

@@ -114,10 +114,10 @@ const DDL = [
 ];
 
 /** 会话 ID（对照真实形态：主会话 session_<32hex>，子代理 sess_subagent_agent_<uuid>） */
-const S_MAIN = "session_00000000000000000000000000000001"; // interactive，time_updated 最新 → 兜底应选中
+const S_MAIN = "session_00000000000000000000000000000001"; // interactive，心跳夹具指向的会话
 const S_OLD = "session_00000000000000000000000000000002"; // interactive，较旧
 const S_SUB = "sess_subagent_agent_00000000-0000-4000-8000-000000000003"; // subagent_child，time_updated 比 S_OLD 新 → 验证兜底必须过滤 task_type
-// ---- T8 追加（跨会话 KPI / 7 天趋势 / 筛选所需的多日期、多项目、多规模行集）----
+// ---- T8 追加（跨会话 KPI / 7 天趋势 / 篮选所需的多日期、多项目、多规模行集）----
 // T0 = 2026-10-21T16:26:40Z（UTC 日 D0）；DAY = 86400000
 const DAY = 86400000;
 const S_DAY1 = "session_00000000000000000000000000000011"; // D-1（窗口内），项目 A，大规模 50000 token
@@ -128,6 +128,9 @@ const S_EMPTY = "session_00000000000000000000000000000014"; // D-1，项目 A，
 /** 项目 B：与项目 A 不同的 project_id / directory（筛选下拉数据源） */
 const PROJ_B = "proj_d-.opensource-other-project";
 const DIR_B = "D:\\.opensource\\other-project";
+// T11 合并调整：S_NEAR 原 ID 与 T6 的 S_BROWSER（…0005）撞号（S_BROWSER 不入 db、仅 rollout
+// 与测试心跳注入，T6 语义前提是 …0005 不在 db 中），合并时按 T11 自己的"与既有会话错开"惯例改用 …0006
+const S_NEAR = "session_00000000000000000000000000000006"; // interactive，time_updated 全场最新（T11）→ 无心跳兜底应选中；与心跳指向的 S_MAIN 错开，使"心跳会话 vs 推断会话"在夹具中可区分；带压缩历史且最近占用达阈值 90%（T11 接近压缩提醒场景；ID 与 T9 的 S_MULTI 及 T6 的 S_BROWSER 错开）
 const S_MULTI = "session_00000000000000000000000000000004"; // interactive，T9 活跃数据行集：跨三个日历日、两个模型/供应商
 const S_SUBSUB = "sess_subagent_agent_00000000-0000-4000-8000-000000000004"; // subagent_child，parent=S_SUB → Fleet 树的孙代理层（T10）
 // T6 请求明细专用会话（不在 db 中：测试经心跳注入，request-detail 默认会话解析只认心跳；
@@ -150,6 +153,8 @@ function insertSessions(db) {
   stmt.run(S_DAY3, PROJ_B, null, S_DAY3, DIR_B, "夹具项目B会话", "3.16.2", T0 - 3 * DAY + 3600000, T0 - 3 * DAY + 7200000, "interactive");
   stmt.run(S_DAY8, PROJ_B, null, S_DAY8, DIR_B, "夹具项目B旧会话", "3.16.2", T0 - 8 * DAY + 3600000, T0 - 8 * DAY + 7200000, "interactive");
   stmt.run(S_EMPTY, proj, null, S_EMPTY, dir, "夹具零用量会话", "3.16.2", T0 - DAY + 7000000, T0 - DAY + 8000000, "interactive");
+  // S_NEAR（T11）：time_updated 全场最新 → 无心跳兜底选中它而非 S_MAIN
+  stmt.run(S_NEAR, proj, null, S_NEAR, dir, "夹具接近压缩会话", "3.16.2", T0 + 80000, T0 + 90000, "interactive");
   // T9 跨日会话：time_updated（T0+30000）早于 S_MAIN（T0+60000），不破坏 T2 兜底选中 S_MAIN 的断言
   stmt.run(S_MULTI, proj, null, S_MULTI, dir, "夹具跨日会话（T9）", "3.16.2", T0 - 2 * 86400000, T0 + 30000, "interactive");
   // T10：孙代理挂在 S_SUB 之下（parent_id 链 S_MAIN → S_SUB → S_SUBSUB）
@@ -231,6 +236,16 @@ function insertModelUsage(db) {
   row("mu_subsub_2", S_SUBSUB, "turn_fixture_subsub", "subagent", "subagent_child",
     T0 + 52000, 300, null, 300, 0, 0, 0, 250, 300,
     { status: "error", errorType: "mock_error" });
+  // S_NEAR（T11）：一行 completed main_turn；最近上下文占用近似 = input 900（含缓存读 700），
+  // 压缩阈值依据 preCompactTokenCount=1000（下方 part 行）→ 占用率 0.9 ≥ 0.8，触发接近压缩提醒。
+  // S_NEAR 期望聚合：requests=1, input=900, output=100, reasoning=0,
+  //   cacheRead=700, cacheWrite=0, computedTotal=1000, ttft=700。
+  // 行时间置于 T9 的 91 天统计窗口之外（T0-100d）：T11 的压缩提醒与推断兜底均不依赖
+  // 行时间在窗口内（ratio 只按会话过滤取最近 completed main_turn；兜底按 session.time_updated），
+  // 避免破坏 T9 按日/模型/供应商的全库手算期望（T0-100d 亦在 T8 的 7 天窗口外）。
+  const T_NEAR = T0 - 100 * 86400000;
+  row("mu_near_1", S_NEAR, "turn_fixture_near", "main_turn", "interactive",
+    T_NEAR + 20000, 1500, 700, 900, 100, 0, 0, 700, 1000);
 }
 
 /**
@@ -291,6 +306,29 @@ function insertMessageAndPart(db) {
         postCompactTokenCount: 300,
         truePostCompactTokenCount: 300,
         summarizedMessageCount: 2,
+        keptMessageCount: 1,
+      },
+    }), 2);
+  // S_NEAR（T11）的压缩历史：preCompactTokenCount=1000 是该会话的实测压缩阈值代理。
+  // 时间与 mu_near_1 同期（T0-100d，见 insertModelUsage 注释），保持"请求→压缩"先后自洽
+  db.prepare(
+    `INSERT INTO message (id, session_id, time_created, time_updated, data, sequence)
+     VALUES (?, ?, ?, ?, ?, ?)`,
+  ).run("msg_fixture_near", S_NEAR, T0 - 100 * 86400000 + 10000, T0 - 100 * 86400000 + 10000,
+    JSON.stringify({ role: "user", time: T0 - 100 * 86400000 + 10000 }), 1);
+  db.prepare(
+    `INSERT INTO part (id, message_id, session_id, time_created, time_updated, data, sequence)
+     VALUES (?, ?, ?, ?, ?, ?, ?)`,
+  ).run("part_fixture_compact_near", "msg_fixture_near", S_NEAR, T0 - 100 * 86400000 + 60000, T0 - 100 * 86400000 + 60000,
+    JSON.stringify({
+      type: "compaction",
+      auto: true,
+      compactBoundary: {
+        boundaryId: "cb_fixture_near",
+        preCompactTokenCount: 1000,
+        postCompactTokenCount: 200,
+        truePostCompactTokenCount: 200,
+        summarizedMessageCount: 3,
         keptMessageCount: 1,
       },
     }), 2);

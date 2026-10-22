@@ -2,15 +2,17 @@
  * Insights 总览工具功能缝基线（T8，缝：in-process 直调工具 execute）。
  *
  * 期望值全部为独立手算常量（对照 scripts/make-fixtures.mjs 的行集，不经被测代码反推）。
- * 手算口径（工具实现必须与之对齐；并集夹具含 T5 追加 3 行、T9 活跃行集、T10 孙代理行集）：
+ * 手算口径（工具实现必须与之对齐；并集夹具含 T5 追加 3 行、T9 活跃行集、T10 孙代理行集、
+ * T11 接近压缩会话 S_NEAR——合并 t11 时按并集夹具重算，来源见各行括注）：
  *  - KPI 跨全部未删除会话（不受列表筛选影响）：
  *      totalTokens = 各会话 model_usage.computed_total_tokens 全量合计
  *                  = 4405(S_MAIN 6 行) + 350(S_OLD) + 2300(S_SUB) + 1550(S_MULTI 4 行)
  *                    + 1200(S_SUBSUB 2 行) + 50000(S_DAY1) + 3000(S_DAY3) + 500(S_DAY8)
- *                    + 0(S_EMPTY) = 63305
- *      totalSessions = 9
+ *                    + 0(S_EMPTY) + 1000(S_NEAR 1 行，T11) = 64305
+ *      totalSessions = 10
  *      activeDays = model_usage.started_at 去重 UTC 日
- *                 = {10-13, 10-18, 10-19, 10-20, 10-21} = 5（10-19 为 T9 的 mu_act_c/d）
+ *                 = {07-13(T11 mu_near_1，置于 T9 91 天窗口外的 100 天前), 10-13, 10-18,
+ *                    10-19, 10-20, 10-21} = 6（10-19 为 T9 的 mu_act_c/d）
  *  - 7 天趋势：锚点 = 全库最大 started_at（= T0+52000，mu_subsub_2 → UTC 日 2026-10-21），
  *    窗口 [2026-10-15, 2026-10-21]（含端点 7 天，旧→新）：
  *      10-18: 3000 token / 2 请求 / 1 会话（S_DAY3 两行）
@@ -41,11 +43,12 @@ const S_DAY1 = "session_00000000000000000000000000000011";
 const S_DAY3 = "session_00000000000000000000000000000012";
 const S_DAY8 = "session_00000000000000000000000000000013";
 const S_EMPTY = "session_00000000000000000000000000000014";
+const S_NEAR = "session_00000000000000000000000000000006"; // T11 接近压缩会话（time_updated=T0+90000 全场最新；1 行 / 1000 token）
 const PROJ_A = "proj_d-.opensource-zcode-context-insight";
 const PROJ_B = "proj_d-.opensource-other-project";
 
-// 手算期望（见文件头注释；并集夹具含 T5/T9/T10 行集）
-const EXPECT_KPI = { totalTokens: 63305, totalSessions: 9, activeDays: 5 };
+// 手算期望（见文件头注释；并集夹具含 T5/T9/T10/T11 行集）
+const EXPECT_KPI = { totalTokens: 64305, totalSessions: 10, activeDays: 6 };
 const zero = { tokens: 0, requests: 0, sessions: 0 };
 const EXPECT_TREND = [
   { date: "2026-10-15", ...zero },
@@ -89,16 +92,18 @@ describe("get_insights（功能缝：直调 execute）", () => {
   it("项目清单含两个项目及会话数（筛选下拉数据源）", async () => {
     const payload = await callTool();
     expect(payload.projects).toEqual([
-      // 项目 A：S_MAIN/S_OLD/S_SUB/S_MULTI/S_SUBSUB/S_EMPTY/S_DAY1 共 7 个（并集夹具）
-      { id: PROJ_A, directory: "D:\\.opensource\\zcode-context-insight", sessions: 7 },
+      // 项目 A：S_MAIN/S_OLD/S_SUB/S_MULTI/S_SUBSUB/S_EMPTY/S_DAY1/S_NEAR 共 8 个（并集夹具）
+      { id: PROJ_A, directory: "D:\\.opensource\\zcode-context-insight", sessions: 8 },
       { id: PROJ_B, directory: "D:\\.opensource\\other-project", sessions: 2 },
     ]);
   });
 
   it("默认会话列表：按 time_updated 降序，含零用量会话（LEFT JOIN 语义）与子代理标注", async () => {
     const payload = await callTool();
-    expect(payload.sessions.total).toBe(9);
+    expect(payload.sessions.total).toBe(10);
     expect(payload.sessions.items.map(summary)).toEqual([
+      // S_NEAR（T11）time_updated=T0+90000 全场最新 → 列表首位
+      { id: S_NEAR, taskType: "interactive", requests: 1, totalTokens: 1000 },
       { id: S_MAIN, taskType: "interactive", requests: 6, totalTokens: 4405 },
       { id: S_SUBSUB, taskType: "subagent_child", requests: 2, totalTokens: 1200 },
       { id: S_SUB, taskType: "subagent_child", requests: 1, totalTokens: 2300 },
@@ -110,15 +115,15 @@ describe("get_insights（功能缝：直调 execute）", () => {
       { id: S_DAY8, taskType: "interactive", requests: 1, totalTokens: 500 },
     ]);
     // 列表项字段契约：标题/项目/时间/token（会话卡片的取数来源）
-    const main = payload.sessions.items[0];
+    const main = payload.sessions.items[1];
     expect(main.title).toBe("夹具主会话（当前）");
     expect(main.projectId).toBe(PROJ_A);
     expect(main.directory).toBe("D:\\.opensource\\zcode-context-insight");
     expect(main.timeUpdated).toBe(T0 + 60000);
     expect(main.parentId).toBeNull();
-    const sub = payload.sessions.items[2];
+    const sub = payload.sessions.items[3];
     expect(sub.parentId).toBe(S_MAIN); // Fleet 后续工单复用
-    const subsub = payload.sessions.items[1];
+    const subsub = payload.sessions.items[2];
     expect(subsub.parentId).toBe(S_SUB); // 孙代理（T10 行集）
   });
 
@@ -134,27 +139,28 @@ describe("get_insights（功能缝：直调 execute）", () => {
   it("筛选：按规模 minTokens=1000（剔除 S_DAY8 500 / S_OLD 350 / S_EMPTY 0）", async () => {
     const payload = await callTool({ minTokens: 1000 });
     expect(payload.sessions.items.map((s) => s.id)).toEqual([
-      S_MAIN, S_SUBSUB, S_SUB, S_MULTI, S_DAY1, S_DAY3,
+      S_NEAR, S_MAIN, S_SUBSUB, S_SUB, S_MULTI, S_DAY1, S_DAY3,
     ]);
-    expect(payload.sessions.total).toBe(6);
+    expect(payload.sessions.total).toBe(7); // S_NEAR 1000 恰达下界（T11 并入后新增命中）
   });
 
-  it("筛选：按时间 since=T0（仅 D0 当天活跃的五个会话）", async () => {
+  it("筛选：按时间 since=T0（仅 D0 当天活跃的六个会话）", async () => {
     const payload = await callTool({ since: T0 });
-    expect(payload.sessions.items.map((s) => s.id)).toEqual([S_MAIN, S_SUBSUB, S_SUB, S_OLD, S_MULTI]);
+    // since 按会话 time_updated 过滤：S_NEAR（T0+90000，T11）亦在 D0
+    expect(payload.sessions.items.map((s) => s.id)).toEqual([S_NEAR, S_MAIN, S_SUBSUB, S_SUB, S_OLD, S_MULTI]);
   });
 
   it("排序 sort=tokens：按合计 token 降序，与 recent 排序可区分", async () => {
     const payload = await callTool({ sort: "tokens" });
     expect(payload.sessions.items.map((s) => s.id)).toEqual([
-      S_DAY1, S_MAIN, S_DAY3, S_SUB, S_MULTI, S_SUBSUB, S_DAY8, S_OLD, S_EMPTY,
+      S_DAY1, S_MAIN, S_DAY3, S_SUB, S_MULTI, S_SUBSUB, S_NEAR, S_DAY8, S_OLD, S_EMPTY,
     ]);
   });
 
   it("limit 分页：total 为筛选命中数（分页前），items 截断到 limit", async () => {
     const payload = await callTool({ sort: "tokens", limit: 2 });
     expect(payload.sessions.items.map((s) => s.id)).toEqual([S_DAY1, S_MAIN]);
-    expect(payload.sessions.total).toBe(9);
+    expect(payload.sessions.total).toBe(10);
   });
 
   it("筛选生效值回显（filters 字段携带实际使用的默认值）", async () => {

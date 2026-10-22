@@ -214,3 +214,46 @@ export function aggregateSessionUsage(db: DatabaseSync, sessionId: string): Usag
     byQuerySource,
   };
 }
+
+/**
+ * 最近上下文占用近似（T11 压缩提醒启发式的分子）：
+ * 最近一次 completed 的 main_turn 请求的 input_tokens（input 已含缓存读，近似最近
+ * 一次发往模型的上下文窗口规模）。无样本返回 null。
+ */
+export function getRecentContextTokens(db: DatabaseSync, sessionId: string): number | null {
+  const row = db
+    .prepare(
+      `SELECT input_tokens FROM model_usage
+       WHERE session_id = ? AND query_source = 'main_turn' AND status = 'completed'
+       ORDER BY started_at DESC LIMIT 1`,
+    )
+    .get(sessionId) as { input_tokens: number | null } | undefined;
+  return row?.input_tokens ?? null;
+}
+
+/**
+ * 最近压缩事件的实测阈值代理（T11 压缩提醒启发式的分母）：
+ * part.data JSON 中 compactBoundary.preCompactTokenCount（宿主上次触发压缩时的上下文
+ * 规模）。无压缩历史或 data 形状漂移（解析失败/缺字段）返回 null——不猜阈值。
+ */
+export function getLatestCompactionThreshold(db: DatabaseSync, sessionId: string): number | null {
+  const rows = db
+    .prepare(
+      `SELECT data FROM part
+       WHERE session_id = ? AND data LIKE '%"type":"compaction"%'
+       ORDER BY time_created DESC`,
+    )
+    .all(sessionId) as Array<{ data: string }>;
+  for (const r of rows) {
+    try {
+      const parsed = JSON.parse(r.data) as {
+        compactBoundary?: { preCompactTokenCount?: unknown };
+      };
+      const v = parsed.compactBoundary?.preCompactTokenCount;
+      if (typeof v === "number" && Number.isFinite(v) && v > 0) return v;
+    } catch {
+      // data 漂移或非 JSON：跳过该行，继续找更早的压缩事件
+    }
+  }
+  return null;
+}

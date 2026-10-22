@@ -49,6 +49,49 @@ describe("插件 manifest（.zcode-plugin/plugin.json）", () => {
   });
 });
 
+describe("/context 斜杠命令（commands/context.md，宿主装载的真实输入）", () => {
+  const commandPath = "commands/context.md";
+
+  it("manifest 声明 commands 组件目录指向 commands/", () => {
+    const manifest = readJson(".zcode-plugin/plugin.json");
+    expect(manifest.commands).toBe("commands");
+  });
+
+  it("命令文件存在，文件名匹配命令名正则（文件名即 /context）", () => {
+    expect(existsSync(join(repoRoot, commandPath)), "commands/context.md 应存在").toBe(true);
+    expect("context").toMatch(/^[a-z0-9][a-z0-9_:-]{0,63}$/);
+  });
+
+  it("front-matter 含扁平单行 description（缺 description 且空正文的命令会被宿主丢弃）", () => {
+    const raw = readFileSync(join(repoRoot, commandPath), "utf8");
+    expect(raw.startsWith("---\n")).toBe(true);
+    const end = raw.indexOf("\n---\n", 4);
+    expect(end).toBeGreaterThan(0);
+    const fm = raw.slice(4, end);
+    const desc = fm.split("\n").find((l) => l.startsWith("description:"));
+    expect(desc).toBeTruthy();
+    expect(desc.length).toBeGreaterThan("description: ".length); // 非空描述
+    // 扁平解析器：front-matter 内不得有缩进/多行值（会被丢弃）
+    expect(fm.split("\n").every((l) => !l.startsWith(" ") && !l.startsWith("\t"))).toBe(true);
+  });
+
+  it("正文指示模型调用 get_current_session_report 工具（兜底设计：不用 shell 注入会话 ID）", () => {
+    const raw = readFileSync(join(repoRoot, commandPath), "utf8");
+    const body = raw.slice(raw.indexOf("\n---\n", 4) + 5);
+    expect(body).toContain("get_current_session_report");
+    // 摘要三要素都要指示输出：精确用量 / 组成估算（标注估算） / 压缩提醒
+    expect(body).toContain("精确用量");
+    expect(body).toContain("估算");
+    expect(body).toContain("压缩");
+  });
+
+  it("正文不含动态 shell 展开（!`cmd` 被 zcode-guide 0.3.0 明文拒绝，ADR-0003 修订）", () => {
+    const raw = readFileSync(join(repoRoot, commandPath), "utf8");
+    expect(raw).not.toMatch(/!\`/); // inline dynamic shell
+    expect(raw).not.toMatch(/^!``/m); // fenced ! 块
+  });
+});
+
 /** 解码市场条目的内嵌 SVG 图标（data:image/svg+xml,<percent-encoded>） */
 function decodeSvgDataUri(uri) {
   const prefix = "data:image/svg+xml,";

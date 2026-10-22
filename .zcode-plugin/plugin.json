@@ -10,6 +10,7 @@
     "name": "lxyAK"
   },
   "license": "Apache-2.0",
+  "commands": "commands",
   "mcpServers": {
     "zci": {
       "type": "stdio",
