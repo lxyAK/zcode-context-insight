@@ -1,8 +1,8 @@
 /**
  * 面板装配层：ui/initialize 握手 → callServerTool(get_overview / get_current_session_usage /
- * get_activity_insights) → 渲染。页面骨架（页头 + 概览区 + 当前会话用量区 + Insights 活跃区）
- * 在此；后续工单的页面（Insights 页注册表 / Context 仪表盘 / Fleet）以新文件加入并在
- * renderOverview 处替换/扩展，不动桥协议层。
+ * get_session_stats / get_activity_insights) → 渲染。页面骨架（页头 + 概览区 + 当前会话用量区 +
+ * 统计卡 + Insights 活跃区）在此；后续工单的页面（Insights 页注册表 / Context 仪表盘 / Fleet）
+ * 以新文件加入并在 renderOverview 处替换/扩展，不动桥协议层。
  */
 
 /** 当前会话用量载荷（get_current_session_usage 的 structuredContent 形状） */
@@ -24,10 +24,12 @@ interface UsagePayload {
   } | null;
 }
 import pkg from "../../package.json";
+import { t } from "./i18n.ts";
 import { BridgeClient, PostMessageTransport } from "./bridge.ts";
 import type { PostTarget } from "./bridge.ts";
 import { renderActivitySection } from "./views/activity.ts";
 import type { ActivityPayload } from "./views/activity.ts";
+import { renderStatsSection, type SessionStatsPayload } from "./views/stats.ts";
 
 /** MCP Apps 协议版本（研究笔记 02 §2，与官方面板一致） */
 export const PROTOCOL_VERSION = "2026-01-26";
@@ -42,7 +44,7 @@ export interface MountOptions {
 
 export async function mountPanel(opts: MountOptions): Promise<void> {
   const container = opts.container ?? opts.win.document.getElementById("root");
-  if (!container) throw new Error("面板缺少 #root 容器");
+  if (!container) throw new Error(t("noRootContainer"));
 
   const transport = new PostMessageTransport(opts.win, opts.target ?? opts.win.parent);
   const bridge = new BridgeClient(transport);
@@ -72,7 +74,7 @@ export async function mountPanel(opts: MountOptions): Promise<void> {
 
   const textBlock = result.content?.find((c) => c.type === "text");
   if (!textBlock?.text) {
-    renderError(container, "get_overview 未返回文本内容");
+    renderError(container, t("overviewNoText"));
     return;
   }
 
@@ -89,6 +91,19 @@ export async function mountPanel(opts: MountOptions): Promise<void> {
     usage = null; // 桥错误 → 降级提示
   }
 
+  // 会话统计（T5）：三组统计卡，失败不炸用量区
+  let stats: SessionStatsPayload | null = null;
+  try {
+    const statsResult = (await bridge.request("tools/call", {
+      name: "get_session_stats",
+      arguments: {},
+    })) as { content?: Array<{ type: string; text?: string }> };
+    const statsText = statsResult.content?.find((c) => c.type === "text")?.text;
+    stats = statsText ? (JSON.parse(statsText) as SessionStatsPayload) : null;
+  } catch {
+    stats = null; // 桥错误 → 降级提示
+  }
+
   // Insights 活跃数据（T9）：独立 try/catch，失败只降级活跃区
   let activity: ActivityPayload | null = null;
   try {
@@ -102,7 +117,7 @@ export async function mountPanel(opts: MountOptions): Promise<void> {
     activity = null; // 桥错误 → 降级提示
   }
 
-  renderOverview(container, init, JSON.parse(textBlock.text), usage, activity);
+  renderOverview(container, init, JSON.parse(textBlock.text), usage, stats, activity);
 }
 
 function el(
@@ -122,6 +137,7 @@ function renderOverview(
   init: { hostInfo?: { name?: string; version?: string } },
   payload: { plugin?: string; version?: string; server?: string; greeting?: string },
   usage: UsagePayload | null,
+  stats: SessionStatsPayload | null,
   activity: ActivityPayload | null,
 ): void {
   const doc = container.ownerDocument;
@@ -129,7 +145,7 @@ function renderOverview(
 
   const header = el(doc, "header", "zci-header");
   header.append(
-    el(doc, "h1", "zci-title", "Context Insight"),
+    el(doc, "h1", "zci-title", t("brandName")),
     el(doc, "span", "zci-version", payload.version ? `v${payload.version}` : ""),
   );
 
@@ -140,15 +156,22 @@ function renderOverview(
     return row;
   };
   section.append(
-    el(doc, "p", "zci-status", `已连接 ${init.hostInfo?.name ?? "host"}`),
-    kv("插件", payload.plugin),
-    kv("MCP server", payload.server),
+    el(doc, "p", "zci-status", t("connectedHost", { host: init.hostInfo?.name ?? "host" })),
+    kv(t("kvPlugin"), payload.plugin),
+    kv(t("kvServer"), payload.server),
     el(doc, "p", "zci-greeting", payload.greeting ?? ""),
   );
 
-  const footer = el(doc, "footer", "zci-footer", "骨架就绪：后续工单将在此装载 Insights / Context 仪表盘 / Fleet 页面。");
+  const footer = el(doc, "footer", "zci-footer", t("footerSkeleton"));
 
-  container.append(header, section, renderUsageSection(doc, usage, kv), renderActivitySection(doc, activity), footer);
+  container.append(
+    header,
+    section,
+    renderUsageSection(doc, usage, kv),
+    renderStatsSection(doc, stats),
+    renderActivitySection(doc, activity),
+    footer,
+  );
 }
 
 /** 当前会话精确用量区（T2）：数字 + 识别来源标注（心跳精确 / 推断）；不可用时降级提示 */
@@ -158,11 +181,11 @@ function renderUsageSection(
   kv: (label: string, value: string | undefined) => HTMLElement,
 ): HTMLElement {
   const section = el(doc, "section", "zci-section");
-  const title = el(doc, "h2", "zci-subtitle", "当前会话精确用量");
+  const title = el(doc, "h2", "zci-subtitle", t("usageTitle"));
   section.append(title);
 
   if (!usage?.available || !usage.usage || !usage.session) {
-    section.append(el(doc, "p", "zci-status", "用量暂不可用（未检测到宿主数据库或心跳）"));
+    section.append(el(doc, "p", "zci-status", t("usageUnavailable")));
     return section;
   }
 
@@ -171,18 +194,18 @@ function renderUsageSection(
     doc,
     "span",
     usage.session.source === "heartbeat" ? "zci-badge zci-badge-exact" : "zci-badge zci-badge-inferred",
-    usage.session.source === "heartbeat" ? "心跳精确" : "推断（最近活跃会话）",
+    usage.session.source === "heartbeat" ? t("badgeHeartbeat") : t("badgeInferred"),
   );
   title.append(badge);
 
   section.append(
-    kv("会话", usage.session.id),
-    kv("请求数", String(usage.usage.requests)),
-    kv("输入 token", String(usage.usage.inputTokens)),
-    kv("输出 token", String(usage.usage.outputTokens)),
-    kv("缓存读 token", String(usage.usage.cacheReadTokens)),
-    kv("缓存写 token", String(usage.usage.cacheWriteTokens)),
-    kv("总量 token", String(usage.usage.computedTotalTokens)),
+    kv(t("kvSession"), usage.session.id),
+    kv(t("kvRequests"), String(usage.usage.requests)),
+    kv(t("kvInputTokens"), String(usage.usage.inputTokens)),
+    kv(t("kvOutputTokens"), String(usage.usage.outputTokens)),
+    kv(t("kvCacheReadTokens"), String(usage.usage.cacheReadTokens)),
+    kv(t("kvCacheWriteTokens"), String(usage.usage.cacheWriteTokens)),
+    kv(t("kvTotalTokens"), String(usage.usage.computedTotalTokens)),
   );
   return section;
 }
@@ -191,8 +214,8 @@ function renderError(container: HTMLElement, message: string): void {
   const doc = container.ownerDocument;
   container.replaceChildren(
     el(doc, "header", "zci-header", ""),
-    el(doc, "p", "zci-error", `工具调用失败: ${message}`),
+    el(doc, "p", "zci-error", t("toolCallFailed", { message })),
   );
   const header = container.querySelector(".zci-header");
-  if (header) header.append(el(doc, "h1", "zci-title", "Context Insight"));
+  if (header) header.append(el(doc, "h1", "zci-title", t("brandName")));
 }

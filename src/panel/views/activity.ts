@@ -8,6 +8,8 @@
  *  - 空数据日期：渲染 0 级灰格（悬停"无活动"），完全无活动显示空态提示；
  *  - 单模型：一段 100% 完整圆环，图例单项 100.0%。
  */
+import { t } from "../i18n.ts";
+
 const SVG_NS = "http://www.w3.org/2000/svg";
 
 /** get_activity_insights 的 structuredContent 形状（面板消费的载荷类型） */
@@ -94,11 +96,11 @@ export function renderActivitySection(
   const section = el(doc, "section", "zci-section zci-activity");
   const range = payload?.rangeDays;
   section.append(
-    el(doc, "h2", "zci-subtitle", range ? `活跃与模型组成（最近 ${range} 天）` : "活跃与模型组成"),
+    el(doc, "h2", "zci-subtitle", range ? t("activityTitleRanged", { range }) : t("activityTitle")),
   );
 
   if (!payload?.available) {
-    section.append(el(doc, "p", "zci-status", "活跃数据暂不可用（未检测到宿主数据库）"));
+    section.append(el(doc, "p", "zci-status", t("activityUnavailable")));
     return section;
   }
 
@@ -108,13 +110,13 @@ export function renderActivitySection(
     renderDonutCard(
       doc,
       "zci-activity-models",
-      "模型组成",
+      t("modelsTitle"),
       (payload.models ?? []).map((m) => ({ label: m.modelId, value: m.computedTotalTokens })),
     ),
     renderDonutCard(
       doc,
       "zci-activity-providers",
-      "按供应商",
+      t("providersTitle"),
       (payload.providers ?? []).map((p) => ({ label: p.providerId, value: p.computedTotalTokens })),
     ),
   );
@@ -125,11 +127,11 @@ export function renderActivitySection(
 /** 活跃热力图卡片：列=周（周一开头）、行=周几；空数据日期渲染 0 级格 */
 function renderHeatmapCard(doc: Document, payload: ActivityPayload): HTMLElement {
   const card = el(doc, "div", "zci-activity-card zci-activity-heat");
-  card.append(el(doc, "h3", "zci-activity-card-title", "活跃热力图"));
+  card.append(el(doc, "h3", "zci-activity-card-title", t("heatmapTitle")));
 
   const daily = payload.daily ?? [];
   if (daily.length === 0) {
-    card.append(el(doc, "p", "zci-status", "窗口内无活动"));
+    card.append(el(doc, "p", "zci-status", t("noActivity")));
     return card;
   }
 
@@ -153,7 +155,7 @@ function buildHeatmapSvg(doc: Document, payload: ActivityPayload): Element {
   const svg = svgEl(doc, "svg", {
     class: "zci-heatmap",
     role: "img",
-    "aria-label": `最近 ${rangeDays} 天活跃热力图`,
+    "aria-label": t("heatmapAria", { range: rangeDays }),
     viewBox: `0 0 ${cols * CELL + 2} ${7 * CELL + 2}`,
     width: cols * CELL + 2,
     height: 7 * CELL + 2,
@@ -193,8 +195,13 @@ function buildHeatmapSvg(doc: Document, payload: ActivityPayload): Element {
     );
     const title = svgEl(doc, "title", {});
     title.textContent = data
-      ? `${date}｜${data.requests} 次请求 · ${data.computedTotalTokens} token · ${data.sessions} 会话`
-      : `${date}｜无活动`;
+      ? t("heatCellActive", {
+          date,
+          requests: data.requests,
+          tokens: data.computedTotalTokens,
+          sessions: data.sessions,
+        })
+      : t("heatCellEmpty", { date });
     rect.append(title);
     svg.append(rect);
   }
@@ -204,7 +211,7 @@ function buildHeatmapSvg(doc: Document, payload: ActivityPayload): Element {
 /** 热力图图例：0-4 级色块 + 少/多 */
 function buildHeatLegend(doc: Document): HTMLElement {
   const legend = el(doc, "div", "zci-heat-legend");
-  legend.append(el(doc, "span", "zci-heat-legend-text", "少"));
+  legend.append(el(doc, "span", "zci-heat-legend-text", t("heatLegendLess")));
   for (let level = 0; level <= 4; level++) {
     const swatch = el(doc, "span", "zci-heat-swatch");
     swatch.setAttribute("data-level", String(level));
@@ -216,7 +223,7 @@ function buildHeatLegend(doc: Document): HTMLElement {
     );
     legend.append(swatch);
   }
-  legend.append(el(doc, "span", "zci-heat-legend-text", "多"));
+  legend.append(el(doc, "span", "zci-heat-legend-text", t("heatLegendMore")));
   return legend;
 }
 
@@ -232,7 +239,7 @@ function renderDonutCard(
 
   const total = slices.reduce((sum, s) => sum + s.value, 0);
   if (slices.length === 0 || total <= 0) {
-    card.append(el(doc, "p", "zci-status", "窗口内无活动"));
+    card.append(el(doc, "p", "zci-status", t("noActivity")));
     return card;
   }
 
@@ -246,7 +253,7 @@ function renderDonutCard(
     dot.setAttribute("style", `background: ${PALETTE[slices.indexOf(s) % PALETTE.length]}`);
     li.append(dot);
     li.append(el(doc, "span", "zci-legend-label", s.label));
-    li.append(el(doc, "span", "zci-legend-value", `${s.value} token｜${pct}`));
+    li.append(el(doc, "span", "zci-legend-value", t("donutLegendValue", { value: s.value, pct })));
     legend.append(li);
   }
   card.append(legend);
@@ -283,7 +290,7 @@ function buildDonutSvg(doc: Document, slices: Array<{ label: string; value: numb
     });
     circle.setAttribute("style", `stroke: ${PALETTE[i % PALETTE.length]}`);
     const title = svgEl(doc, "title", {});
-    title.textContent = `${s.label}｜${s.value} token（${pct}）`;
+    title.textContent = t("donutSlice", { label: s.label, value: s.value, pct });
     circle.append(title);
     g.append(circle);
     accumulated += len;

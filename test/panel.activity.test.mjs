@@ -48,7 +48,7 @@ const OVERVIEW_RESULT = {
   content: [{ type: "text", text: JSON.stringify({ plugin: "zcode-context-insight", version: "0.1.0", server: "zci" }) }],
 };
 
-/** 构造 get_activity_insights 应答（daily 手算：D0=5/5150/4，D0-1=1/300/1，D0-2=1/500/1） */
+/** 构造 get_activity_insights 应答（daily 手算：D0=8/7740/4，D0-1=1/300/1，D0-2=1/500/1；见服务端测试注释） */
 function activityResult(payload) {
   return { content: [{ type: "text", text: JSON.stringify(payload) }] };
 }
@@ -61,20 +61,20 @@ const FULL_ACTIVITY = {
   daily: [
     { date: dayKey(T0 - 2 * 86400000 + 7200000), requests: 1, computedTotalTokens: 500, sessions: 1 },
     { date: dayKey(T0 - 86400000 + 3600000), requests: 1, computedTotalTokens: 300, sessions: 1 },
-    { date: dayKey(T0 + 30000), requests: 5, computedTotalTokens: 5150, sessions: 4 },
+    { date: dayKey(T0 + 30000), requests: 8, computedTotalTokens: 7740, sessions: 4 },
   ],
   models: [
-    { providerId: "account:fixture", modelId: "GLM-5.3", requests: 6, computedTotalTokens: 5650 },
+    { providerId: "account:fixture", modelId: "GLM-5.3", requests: 9, computedTotalTokens: 8240 },
     { providerId: "account:fixture-alt", modelId: "GLM-4.7", requests: 1, computedTotalTokens: 300 },
   ],
   providers: [
-    { providerId: "account:fixture", requests: 6, computedTotalTokens: 5650 },
+    { providerId: "account:fixture", requests: 9, computedTotalTokens: 8240 },
     { providerId: "account:fixture-alt", requests: 1, computedTotalTokens: 300 },
   ],
 };
 
-/** 百分比手算（环形图图例）：5650/5950=94.96→95.0%；300/5950=5.04→5.0% */
-const MODEL_PCT = ["95.0%", "5.0%"];
+/** 百分比手算（环形图图例）：8240/8540=96.49→96.5%；300/8540=3.51→3.5% */
+const MODEL_PCT = ["96.5%", "3.5%"];
 
 function mountWith(activityPayload) {
   const host = createMockHost(window, {
@@ -100,11 +100,11 @@ describe("面板活跃区（mock 桥）", () => {
     const cells = svg.querySelectorAll("rect.zci-heat-cell");
     expect(cells.length).toBe(91);
 
-    // D0 格子悬停显示当日数值：5 次请求 · 5150 token · 4 会话
+    // D0 格子悬停显示当日数值：8 次请求 · 7740 token · 4 会话
     const d0 = svg.querySelector(`rect[data-date="${dayKey(T0 + 30000)}"]`);
     expect(d0).toBeTruthy();
     expect(d0.querySelector("title").textContent).toBe(
-      `${dayKey(T0 + 30000)}｜5 次请求 · 5150 token · 4 会话`,
+      `${dayKey(T0 + 30000)}｜8 次请求 · 7740 token · 4 会话`,
     );
 
     // 空数据日期：0 级格 + "无活动" 悬停（验收 3 前半）。选窗口内 5 天前（夹具行只覆盖最近 2 天）
@@ -128,10 +128,10 @@ describe("面板活跃区（mock 桥）", () => {
     // 两段弧（两个模型）
     expect(modelDonut.querySelectorAll("circle.zci-donut-slice").length).toBe(2);
     // 悬停 title 显示数值与占比
-    expect(modelDonut.querySelector("circle.zci-donut-slice > title").textContent).toContain("5650");
-    expect(modelDonut.querySelector("circle.zci-donut-slice > title").textContent).toContain("95.0%");
+    expect(modelDonut.querySelector("circle.zci-donut-slice > title").textContent).toContain("8240");
+    expect(modelDonut.querySelector("circle.zci-donut-slice > title").textContent).toContain("96.5%");
 
-    // 图例：模型名 + token + 百分比（手算：5650/5950 与 300/5950）
+    // 图例：模型名 + token + 百分比（手算：8240/8540 与 300/8540）
     const legend = root.querySelector(".zci-activity-models .zci-legend");
     expect(legend.textContent).toContain("GLM-5.3");
     expect(legend.textContent).toContain("GLM-4.7");
@@ -145,8 +145,8 @@ describe("面板活跃区（mock 桥）", () => {
   it("单模型场景：环形图渲染完整圆环不崩（验收 3 边界）", async () => {
     await mountWith({
       ...FULL_ACTIVITY,
-      models: [{ providerId: "account:fixture", modelId: "GLM-5.3", requests: 5, computedTotalTokens: 5150 }],
-      providers: [{ providerId: "account:fixture", requests: 5, computedTotalTokens: 5150 }],
+      models: [{ providerId: "account:fixture", modelId: "GLM-5.3", requests: 8, computedTotalTokens: 7740 }],
+      providers: [{ providerId: "account:fixture", requests: 8, computedTotalTokens: 7740 }],
     });
 
     const root = document.getElementById("root");
