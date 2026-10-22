@@ -191,6 +191,102 @@ function insertMessageAndPart(db) {
     }), 2);
 }
 
+/**
+ * T7 行集：事件流（model_change timeline + 第二条 compaction）与文件活动（tool part）。
+ * 数据形状对照真实宿主库实测（研究笔记 03 §5）：
+ *  - timeline：{type:'timeline', timelineType:'model_change', toModelSelection:{providerId,modelId,label}, toModel:{providerID,modelID}}
+ *  - compaction：{type:'compaction', auto:bool, trigger:'manual'|'auto', compactBoundary:{pre/post/truePost/summarized/kept}}
+ *  - tool：{type:'tool', tool:'Read|Write|Edit|Grep|Glob|Bash', state:{status, input:{file_path|path+pattern|content|old_string+new_string}}}
+ *
+ * 注意：行按"时间乱序"插入（compaction_2 先于 compact_1、tl GLM-5.4 先于 GLM-5.3、tool 乱序），
+ * 测试据此证明排序由查询层完成而非落库顺序。
+ *
+ * S_MAIN 期望（手算，测试常量的真值来源）：
+ *  - 事件流（时间升序）：
+ *      1) model_change @T0+15000 → GLM-5.3
+ *      2) model_change @T0+35000 → GLM-5.4
+ *      3) compaction  @T0+55000 trigger=auto（part_fixture_compact_1：1800→300，总结 2 保留 1）
+ *      4) compaction  @T0+58000 trigger=manual（4000→900/truePost 500，总结 5 保留 2）
+ *  - 文件活动（时间升序，行数按 \n 分割计、空串 0 行）：
+ *      1) read  @T0+16000 D:\repo\src\a.ts（无行数）
+ *      2) search@T0+17000 D:\repo\src pattern=handleRequest（Grep）
+ *      3) edit  @T0+18000 D:\repo\src\a.ts +4/-3（old 3 行 → new 4 行）
+ *      4) write @T0+19000 D:\repo\out\new.ts +5（content 5 行）
+ *      5) search@T0+20000 D:\repo pattern=*.ts（Glob）
+ *      6) edit  @T0+21000 D:\repo\src\missing.ts +1/-0 status=error（old 空串 0 行，new 1 行）
+ *      （Bash @T0+22000 不属于文件活动，必须被排除）
+ *  - S_OLD 无任何 part 行 → 事件流与文件活动均为空数组（空态）。
+ */
+function insertT7Parts(db) {
+  const part = db.prepare(
+    `INSERT INTO part (id, message_id, session_id, time_created, time_updated, data, sequence)
+     VALUES (?, ?, ?, ?, ?, ?, ?)`,
+  );
+  const msg = db.prepare(
+    `INSERT INTO message (id, session_id, time_created, time_updated, data, sequence)
+     VALUES (?, ?, ?, ?, ?, ?)`,
+  );
+  // 工具 part 挂在 assistant 消息上（与真实形态一致）
+  msg.run("msg_fixture_2", S_MAIN, T0 + 12000, T0 + 12000,
+    JSON.stringify({ role: "assistant", time: T0 + 12000, model: "GLM-5.3" }), 2);
+
+  // —— 事件流行（乱序插入：先 35000 的 GLM-5.4，再 15000 的 GLM-5.3；manual 压缩先于 auto 压缩）——
+  part.run("part_t7_tl_glm54", "msg_fixture_2", S_MAIN, T0 + 35000, T0 + 35000,
+    JSON.stringify({
+      type: "timeline",
+      timelineType: "model_change",
+      display: "separator",
+      status: "completed",
+      time: { start: T0 + 35000, end: T0 + 35000 },
+      toModel: { providerID: "account:fixture", modelID: "GLM-5.4", variant: "max", label: "account:fixture/GLM-5.4" },
+      toModelSelection: { providerId: "account:fixture", modelId: "GLM-5.4", options: { reasoningLevel: "max" }, label: "account:fixture/GLM-5.4" },
+    }), 11);
+  part.run("part_t7_tl_glm53", "msg_fixture_2", S_MAIN, T0 + 15000, T0 + 15000,
+    JSON.stringify({
+      type: "timeline",
+      timelineType: "model_change",
+      display: "separator",
+      status: "completed",
+      time: { start: T0 + 15000, end: T0 + 15000 },
+      toModel: { providerID: "account:fixture", modelID: "GLM-5.3", label: "account:fixture/GLM-5.3" },
+      toModelSelection: { providerId: "account:fixture", modelId: "GLM-5.3", label: "account:fixture/GLM-5.3" },
+    }), 10);
+  part.run("part_t7_compact_2", "msg_fixture_1", S_MAIN, T0 + 58000, T0 + 58000,
+    JSON.stringify({
+      type: "compaction",
+      auto: false,
+      trigger: "manual",
+      compactBoundary: {
+        boundaryId: "cb_fixture_2",
+        preCompactTokenCount: 4000,
+        postCompactTokenCount: 900,
+        truePostCompactTokenCount: 500,
+        summarizedMessageCount: 5,
+        keptMessageCount: 2,
+      },
+    }), 20);
+
+  // —— 文件活动行（tool part，乱序插入）——
+  const tool = (id, time, toolName, input, status = "completed", sequence) =>
+    part.run(id, "msg_fixture_2", S_MAIN, time, time,
+      JSON.stringify({ type: "tool", callID: `call_${id}`, tool: toolName, state: { status, input } }), sequence);
+
+  tool("part_t7_tool_edit_1", T0 + 18000, "Edit",
+    { file_path: "D:\\repo\\src\\a.ts", old_string: "a\nb\nc", new_string: "a\nx\nc\nd" }, "completed", 31);
+  tool("part_t7_tool_read_1", T0 + 16000, "Read",
+    { file_path: "D:\\repo\\src\\a.ts" }, "completed", 30);
+  tool("part_t7_tool_bash_1", T0 + 22000, "Bash",
+    { command: "npm test" }, "completed", 36);
+  tool("part_t7_tool_glob_1", T0 + 20000, "Glob",
+    { pattern: "*.ts", path: "D:\\repo" }, "completed", 34);
+  tool("part_t7_tool_write_1", T0 + 19000, "Write",
+    { file_path: "D:\\repo\\out\\new.ts", content: "l1\nl2\nl3\nl4\nl5" }, "completed", 32);
+  tool("part_t7_tool_edit_2", T0 + 21000, "Edit",
+    { file_path: "D:\\repo\\src\\missing.ts", old_string: "", new_string: "only" }, "error", 35);
+  tool("part_t7_tool_grep_1", T0 + 17000, "Grep",
+    { pattern: "handleRequest", path: "D:\\repo\\src" }, "completed", 33);
+}
+
 await rm(dbPath, { force: true });
 await mkdir(fixtureDir, { recursive: true });
 
@@ -201,6 +297,7 @@ insertSessions(db);
 insertModelUsage(db);
 insertTurnUsage(db);
 insertMessageAndPart(db);
+insertT7Parts(db);
 db.exec("COMMIT");
 db.close();
 
