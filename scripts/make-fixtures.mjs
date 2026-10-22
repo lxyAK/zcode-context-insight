@@ -3,12 +3,17 @@
  *  - test/fixtures/db.sqlite：结构与真实宿主库 schema 一致（DDL 对照研究笔记 03 §2-§5），
  *    行集为手工设计的最小集，期望值见 test/session-usage.test.mjs 的手算常量。
  *  - test/fixtures/heartbeat.json：手工静态文件，直接落仓，不经本脚本。
+ *  - test/fixtures/rollout/*.jsonl：T6 的 model-io 夹具，行结构对照研究笔记 03 §7
+ *    （真实文件实测：头部 system 消息与 body.system 逐字重复；尾部可再出现 system 消息；
+ *     tool/user 消息 content 为字符串；assistant 为 [{type,text}] 分块数组）。
+ *    内容长度刻意选为 4 的倍数（纯 ASCII），使估算值可手算：
+ *    估算规则 = ceil(ASCII/4) + ceil(CJK*2/3)，期望值见 test/request-detail.test.mjs。
  *
  * 红线：本脚本只写仓库内夹具路径，绝不触碰 ~/.zcode 真实库。
  * 幂等：每次删除重建。
  */
 import { DatabaseSync } from "node:sqlite";
-import { mkdir, rm } from "node:fs/promises";
+import { mkdir, rm, writeFile as fsWriteFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -205,3 +210,196 @@ db.exec("COMMIT");
 db.close();
 
 console.log(`夹具已生成: ${dbPath}`);
+
+// =====================================================================
+// rollout model-io 夹具（T6：请求明细 / Context Browser）
+// =====================================================================
+
+const rolloutDir = join(fixtureDir, "rollout");
+
+/** 夹具请求 usage（rollout response.usage 为 camelCase，对照 03 笔记 §7） */
+const usage = (inputTokens, outputTokens, cacheReadTokens = 0, cacheWriteTokens = 0) => ({
+  inputTokens,
+  outputTokens,
+  totalTokens: inputTokens + outputTokens,
+  cacheReadTokens,
+  cacheWriteTokens,
+});
+
+/** 夹具工具定义：JSON 序列化长度 Read=76 → 估算 19；Bash=78 → 估算 20 */
+const TOOLS = [
+  { name: "Read", description: "Read a file", input_schema: { type: "object" } },
+  { name: "Bash", description: "Run a command", input_schema: { type: "object" } },
+];
+
+/** 重复字符助手（长度刻意为 4 的倍数 → ASCII 估算 = len/4） */
+const rep = (ch, n) => ch.repeat(n);
+
+/**
+ * 写 rollout 夹具：
+ *  - S_MAIN：4 行（full / delta / full / tail），第一行 full 携带精心设计的块结构；
+ *  - S_OLD：2 行纯 delta（纯 delta 会话 → 明细一律"无快照"）；
+ *  - S_SUB：不生成文件（rollout 被清理的旧会话 → 明细不可用）。
+ */
+async function writeRolloutFixtures() {
+  await rm(rolloutDir, { recursive: true, force: true });
+  await mkdir(rolloutDir, { recursive: true });
+
+  // --- S_MAIN 第 1 行：req-full-1，四分组块级结构的手算真值来源 ---
+  // 块与估算（ASCII ceil(len/4)；CJK "当前轮请求正文"=7 字 → ceil(7*2/3)=5）：
+  //   system 提示：A*40=10、B*80=20、尾部 S*20=5            → 小计 35，3 块
+  //   工具定义：Read=19、Bash=20                             → 小计 39，2 块
+  //   历史消息：user U*60=15、assistant(44+24)=11+6=17、tool D*100=25 → 小计 57，3 块
+  //   当前轮：最后一条 user（CJK 7 字）=5                    → 小计 5，1 块
+  //   估算合计 136；精确 usage.inputTokens=1200 → 校准系数 1200/136
+  const full1 = {
+    type: "model_io",
+    sessionId: S_MAIN,
+    requestId: "req-full-1",
+    attempt: 1,
+    startedAt: "2026-10-22T00:00:10.000Z",
+    completedAt: "2026-10-22T00:00:16.000Z",
+    durationMs: 6000,
+    querySource: "main_turn",
+    model: { modelId: "GLM-5.3", providerId: "account:fixture" },
+    request: {
+      body: {
+        model: "GLM-5.3",
+        system: [{ type: "text", text: rep("A", 40) }, { type: "text", text: rep("B", 80) }],
+        tools: TOOLS,
+      },
+      messages: [
+        { role: "system", content: rep("A", 40) }, // 与 body.system[0] 逐字重复（真实形态）
+        { role: "system", content: rep("B", 80) },
+        { role: "user", content: rep("U", 60) },
+        {
+          role: "assistant",
+          content: [
+            { type: "reasoning", text: rep("R", 44) },
+            { type: "text", text: rep("T", 24) },
+          ],
+        },
+        { role: "tool", toolCallId: "call_1", toolName: "Read", content: rep("D", 100) },
+        { role: "system", content: rep("S", 20) }, // 尾部 system 提醒（真实形态：末尾可再出现 system）
+        { role: "user", content: "当前轮请求正文" }, // 最后一条 user → 当前轮
+      ],
+      toolNames: ["Read", "Bash"],
+      messageCount: 7,
+      messagesKind: "full",
+      messageOffset: 0,
+    },
+    response: {
+      finishReason: "end_turn",
+      usage: usage(1200, 80, 1000, 0),
+    },
+  };
+
+  // --- S_MAIN 第 2 行：req-delta-1（delta：只带尾部增量，无快照） ---
+  const delta1 = {
+    type: "model_io",
+    sessionId: S_MAIN,
+    requestId: "req-delta-1",
+    attempt: 1,
+    startedAt: "2026-10-22T00:01:10.000Z",
+    completedAt: "2026-10-22T00:01:13.000Z",
+    durationMs: 3000,
+    querySource: "main_turn",
+    model: { modelId: "GLM-5.3", providerId: "account:fixture" },
+    request: {
+      body: { model: "GLM-5.3", system: [{ type: "text", text: rep("A", 40) }], tools: TOOLS },
+      messages: [
+        { role: "user", content: rep("X", 40) },
+        { role: "assistant", content: [{ type: "text", text: rep("Y", 80) }] },
+      ],
+      toolNames: ["Read", "Bash"],
+      messageCount: 8,
+      messagesKind: "delta",
+      messageOffset: 6,
+    },
+    response: { finishReason: "end_turn", usage: usage(800, 60, 600, 0) },
+  };
+
+  // --- S_MAIN 第 3 行：req-full-2（验证"当前轮=最后一条 user"，即使其后还有 system 提醒） ---
+  const full2 = {
+    type: "model_io",
+    sessionId: S_MAIN,
+    requestId: "req-full-2",
+    attempt: 1,
+    startedAt: "2026-10-22T00:02:10.000Z",
+    completedAt: "2026-10-22T00:02:14.000Z",
+    durationMs: 4000,
+    querySource: "main_turn",
+    model: { modelId: "GLM-5.3", providerId: "account:fixture" },
+    request: {
+      body: { model: "GLM-5.3", system: [{ type: "text", text: rep("C", 40) }], tools: [] },
+      messages: [
+        { role: "system", content: rep("C", 40) }, // 估算 10
+        { role: "user", content: "Second turn question!" }, // 21 ASCII → 估算 6（当前轮）
+        { role: "system", content: rep("M", 20) }, // 尾部提醒 → system 组（估算 5）
+      ],
+      toolNames: [],
+      messageCount: 3,
+      messagesKind: "full",
+      messageOffset: 0,
+    },
+    response: { finishReason: "end_turn", usage: usage(400, 40, 0, 0) },
+  };
+
+  // --- S_MAIN 第 4 行：req-tail-1（tail 形态：同样不作组成基准） ---
+  const tail1 = {
+    type: "model_io",
+    sessionId: S_MAIN,
+    requestId: "req-tail-1",
+    attempt: 1,
+    startedAt: "2026-10-22T00:03:10.000Z",
+    completedAt: "2026-10-22T00:03:15.000Z",
+    durationMs: 5000,
+    querySource: "main_turn",
+    model: { modelId: "GLM-5.3", providerId: "account:fixture" },
+    request: {
+      body: { model: "GLM-5.3", system: [{ type: "text", text: rep("A", 40) }], tools: TOOLS },
+      messages: [{ role: "user", content: rep("Z", 40) }],
+      toolNames: ["Read", "Bash"],
+      messageCount: 94,
+      messagesKind: "tail",
+      messageOffset: 30,
+    },
+    response: { finishReason: "end_turn", usage: usage(900, 70, 500, 0) },
+  };
+
+  // --- S_OLD：纯 delta 会话（两行均 delta） ---
+  const oldDelta = (requestId, offset, count, startedAt) => ({
+    type: "model_io",
+    sessionId: S_OLD,
+    requestId,
+    attempt: 1,
+    startedAt,
+    completedAt: startedAt,
+    durationMs: 1000,
+    querySource: "main_turn",
+    model: { modelId: "GLM-5.3", providerId: "account:fixture" },
+    request: {
+      body: { model: "GLM-5.3", system: [], tools: [] },
+      messages: [{ role: "user", content: rep("O", 40) }],
+      toolNames: [],
+      messageCount: count,
+      messagesKind: "delta",
+      messageOffset: offset,
+    },
+    response: { finishReason: "end_turn", usage: usage(300, 30, 200, 0) },
+  });
+
+  const writeRolloutFile = async (sessionId, lines) => {
+    const p = join(rolloutDir, `model-io-${sessionId}.jsonl`);
+    await fsWriteFile(p, lines.map((l) => JSON.stringify(l)).join("\n") + "\n", "utf8");
+    console.log(`夹具已生成: ${p}`);
+  };
+
+  await writeRolloutFile(S_MAIN, [full1, delta1, full2, tail1]);
+  await writeRolloutFile(S_OLD, [
+    oldDelta("req-old-1", 4, 6, "2026-10-21T00:00:10.000Z"),
+    oldDelta("req-old-2", 6, 9, "2026-10-21T00:01:10.000Z"),
+  ]);
+}
+
+await writeRolloutFixtures();
