@@ -64,6 +64,7 @@ npm run typecheck  # tsc --noEmit
 - 面板产物 `dist/ui/panel.html` 由 esbuild 整体内联生成（源在 `src/panel/`），零外链资产（沙箱 CSP 禁网）
 - 面板文案经 `src/panel/i18n.ts`（i18n 骨架：zh-CN 为默认且当前唯一语言；既有文案已迁入，其余视图文案渐进迁入）
 - 领域术语与口径见 `GLOSSARY.md`；架构决策记录见 `docs/adr/`
+- 宿主与插件协议的一手研究笔记（manifest 格式 / 面板桥 / db schema）见 `docs/research/`；代码审查用的判断题标准见 `CODING_STANDARDS.md`
 
 ## 目录结构
 

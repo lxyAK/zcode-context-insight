@@ -2,7 +2,7 @@
 
 调查日期：2026-10-22；宿主 ZCode 3.16.2（CLI 0.17.0）/ Windows / Node v22.21.1。
 调查约束：`D:\.opensource\zcode-context-insight` 与 `C:\Users\86176\.zcode\` 严格只读；db.sqlite 经复制到临时目录后只读查询。
-注意：本目录（`D:\.opensource\zci-impl-notes\`）是唯一可写位置。
+（本笔记组原生于仓库外探索目录，2026-10-22 原样迁入 `docs/research/`，见同目录 README。）
 
 ## 笔记清单与摘要
 

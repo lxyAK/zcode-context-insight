@@ -8,7 +8,7 @@ spec #1 实现前的探索产出（2026-10-22，宿主基线 ZCode 3.16.2 / Wind
 | `01-plugin-format.md` | `.zcode-plugin/plugin.json` 各字段真实格式、hooks/commands/i18n/图标、工具可见性 `_meta.ui.visibility` |
 | `02-panel-protocol.md` | 面板 postMessage JSON-RPC 桥、握手协议、callServerTool、stateKey、资产内联约束（uPlot 打包方案） |
 | `03-host-data.md` | db.sqlite 全部相关表 schema 与脱敏样例、rollout JSONL 行结构（full/delta/tail）、心跳原型验证结论 |
-| `04-adr-decisions.md` | ADR 浓缩摘要——已被 `docs/adr/` 取代，保留作索引 |
+| `04-adr-decisions.md` | ADR 浓缩摘要——与 `docs/adr/` 大体重叠，但保留 ADR 未收录的实测事实（如 tail 形态），作索引用 |
 | `05-dev-loop.md` | CLI 入口与 dev 回路——已被 README「本地安装与 dev 回路」吸收，保留作补充 |
 
 注意：笔记含本机绝对路径（`C:\Users\...`）与机器相关结论（如心跳脚本的 Git Bash 路径、marketplace source 的原生反斜杠要求），跨机器使用时需按笔记内标注自行验证。

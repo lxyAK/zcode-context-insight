@@ -22,8 +22,8 @@ _Avoid_: 任务、子任务
 上下文逼近上限时，将历史消息总结为摘要的事件；记录压缩前后 token 数与被总结消息数。
 _Avoid_: 裁剪、截断
 
-**full 请求 / delta 请求**:
-模型请求的两种形态：full 携带完整上下文快照，delta 只携带尾部增量。组成估算仅锚定于 full 请求。
+**full / delta / tail 请求**:
+模型请求载荷的三种形态：full 携带完整上下文快照，delta 与 tail 只携带尾部增量（tail 为实测补充，常见于子代理会话，详见 `docs/research/03-host-data.md` §7）。组成估算仅锚定于 full 请求。
 
 ## 口径
 
