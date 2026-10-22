@@ -17,6 +17,7 @@ import { getOverviewTool } from "./tools/get_overview.ts";
 import { createCurrentSessionUsageTool } from "./tools/get_current_session_usage.ts";
 import { createCurrentSessionCompositionTool } from "./tools/get_current_session_composition.ts";
 import { createSessionStatsTool } from "./tools/get_session_stats.ts";
+import { createFleetTreeTool } from "./tools/get_fleet_tree.ts";
 import { createSessionEventsTool } from "./tools/get_session_events.ts";
 import { createSessionFileActivityTool } from "./tools/get_session_file_activity.ts";
 import { createActivityTool } from "./tools/activity.ts";
@@ -28,6 +29,7 @@ const tools: ToolDefinition[] = [
   createCurrentSessionUsageTool(),
   createCurrentSessionCompositionTool(),
   createSessionStatsTool(),
+  createFleetTreeTool(),
   createSessionEventsTool(),
   createSessionFileActivityTool(),
   createActivityTool(),

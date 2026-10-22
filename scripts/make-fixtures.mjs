@@ -111,6 +111,7 @@ const S_MAIN = "session_00000000000000000000000000000001"; // interactive，time
 const S_OLD = "session_00000000000000000000000000000002"; // interactive，较旧
 const S_SUB = "sess_subagent_agent_00000000-0000-4000-8000-000000000003"; // subagent_child，time_updated 比 S_OLD 新 → 验证兜底必须过滤 task_type
 const S_MULTI = "session_00000000000000000000000000000004"; // interactive，T9 活跃数据行集：跨三个日历日、两个模型/供应商
+const S_SUBSUB = "sess_subagent_agent_00000000-0000-4000-8000-000000000004"; // subagent_child，parent=S_SUB → Fleet 树的孙代理层（T10）
 
 function insertSessions(db) {
   const stmt = db.prepare(
@@ -125,6 +126,8 @@ function insertSessions(db) {
   stmt.run(S_SUB, proj, S_MAIN, S_SUB, dir, "夹具子代理会话", "3.16.2", T0, T0 + 50000, "subagent_child");
   // time_updated（T0+30000）早于 S_MAIN（T0+60000）：不破坏 T2 兜底选中 S_MAIN 的断言
   stmt.run(S_MULTI, proj, null, S_MULTI, dir, "夹具跨日会话（T9）", "3.16.2", T0 - 2 * 86400000, T0 + 30000, "interactive");
+  // T10：孙代理挂在 S_SUB 之下（parent_id 链 S_MAIN → S_SUB → S_SUBSUB）
+  stmt.run(S_SUBSUB, proj, S_SUB, S_SUBSUB, dir, "夹具孙代理会话", "3.16.2", T0 + 45000, T0 + 55000, "subagent_child");
 }
 
 /**
@@ -180,6 +183,15 @@ function insertModelUsage(db) {
   // S_SUB（子代理）：一行，验证聚合按 session_id 隔离
   row("mu_sub_1", S_SUB, "turn_fixture_sub", "subagent", "subagent_child",
     T0 + 40000, 4000, 900, 2000, 300, 0, 0, 1500, 2300);
+  // S_SUBSUB（孙代理，T10）：先成功后失败两行。
+  // 期望聚合（手算）：requests=2, input=1100(800+300), output=100(100+0),
+  //   computedTotal=1200(900+300), durationMsTotal=1800(1500+300),
+  //   errorRequests=1，lastRequestStatus='error'（mu_subsub_2 的 started_at 更晚）
+  row("mu_subsub_1", S_SUBSUB, "turn_fixture_subsub", "subagent", "subagent_child",
+    T0 + 48000, 1500, 600, 800, 100, 0, 0, 700, 900);
+  row("mu_subsub_2", S_SUBSUB, "turn_fixture_subsub", "subagent", "subagent_child",
+    T0 + 52000, 300, null, 300, 0, 0, 0, 250, 300,
+    { status: "error", errorType: "mock_error" });
 }
 
 /**

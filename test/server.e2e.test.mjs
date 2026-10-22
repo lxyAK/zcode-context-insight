@@ -176,6 +176,25 @@ describe("MCP server（stdio e2e）", () => {
     expect(payload.reason).toBe("db-not-found");
   });
 
+  it("tools/list 含 get_fleet_tree，app+model 双可见", async () => {
+    const result = await server.request("tools/list", {});
+    const tool = result.tools.find((t) => t.name === "get_fleet_tree");
+    expect(tool, `工具列表: ${JSON.stringify(result.tools.map((t) => t.name))}`).toBeTruthy();
+    expect(tool._meta?.ui?.visibility).toEqual(["model", "app"]);
+  });
+
+  it("tools/call get_fleet_tree（db 缺失时）降级 available=false，不报错", async () => {
+    const result = await server.request("tools/call", {
+      name: "get_fleet_tree",
+      arguments: {},
+    });
+    expect(result.isError).toBeFalsy();
+    const payload = result.structuredContent ?? JSON.parse(result.content[0].text);
+    expect(payload.available).toBe(false);
+    expect(payload.reason).toBe("db-not-found");
+    expect(payload.root).toBeNull();
+  });
+
   it("tools/list 含 T7 工具 get_session_events / get_session_file_activity，app+model 双可见", async () => {
     const result = await server.request("tools/list", {});
     for (const name of ["get_session_events", "get_session_file_activity"]) {
