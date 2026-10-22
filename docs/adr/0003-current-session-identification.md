@@ -4,4 +4,5 @@
 
 ## Consequences
 
-- hook 心跳的可行性（事件名、写权限）尚未运行验证；若原型验证失败，整体退化为"最近活跃推断"为主方案，面板交互需相应调整。
+- **已验证（2026-10-22）**：`prototype/hook-heartbeat` 分支留存了验证脚本与心跳日志。process 型 hook（Git Bash 执行）真实触发；`ZCODE_SESSION_ID` / `CLAUDE_SESSION_ID` / `CLAUDE_CODE_SESSION_ID` 三个别名全部注入且与实际会话一致，`ZCODE_PROJECT_DIR` 同步注入；hook 可写文件、MCP server 可读。主方案成立。
+- 附带发现：hook 配置**不热加载**，修改后需重启应用生效。对插件无害——插件 hook 随安装/启动注册，不存在运行中改配置的场景。
