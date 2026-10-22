@@ -4,7 +4,7 @@
  * 返回两类数据（同一时间窗口）：
  *  - daily：按「用户所在时区的自然日」聚合的活跃度（请求数 / computed_total_tokens /
  *    当日会话数），稀疏返回（仅含有活动的日历日），供热力图补零渲染；
- *  - models / providers：按 provider+model 与按 provider 聚合的 token 分布，供环形图。
+ *  - models / providers：按 provider+model 与按 provider 聚合的 token 用量占比，供环形图。
  *
  * 口径（ADR/GLOSSARY）：
  *  - query_source=session_title 的宿主后台请求不计入（非用户对话成本），口径随载荷透出；
@@ -58,7 +58,7 @@ export function createActivityTool(deps: ActivityDeps = {}): ToolDefinition {
     title: "Insights 活跃数据",
     description:
       "返回 Insights 活跃数据：按本地日历日聚合的活跃度（请求数、token 总量、当日会话数，" +
-      "供活跃热力图）与按模型/供应商聚合的 token 分布（供环形图）。窗口为最近 N 个日历日" +
+      "供活跃热力图）与按模型/供应商聚合的 token 用量占比（供环形图）。窗口为最近 N 个日历日" +
       "（days 参数，默认 91）。口径：token 以 computed_total_tokens 为准；" +
       "query_source=session_title 的后台请求不计入；子代理会话请求计入。db 不可用时 available=false 降级返回。",
     inputSchema,
@@ -142,7 +142,7 @@ function aggregateDaily(
     }));
 }
 
-/** 按供应商(+模型)聚合 token 分布，token 降序 */
+/** 按供应商(+模型)聚合 token 用量占比，token 降序 */
 function aggregateBy(
   rows: Array<{ provider_id: string; model_id: string; computed_total_tokens: number }>,
   providerOf: (r: { provider_id: string }) => string,
