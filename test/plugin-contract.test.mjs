@@ -49,6 +49,49 @@ describe("插件 manifest（.zcode-plugin/plugin.json）", () => {
   });
 });
 
+/** 解码市场条目的内嵌 SVG 图标（data:image/svg+xml,<percent-encoded>） */
+function decodeSvgDataUri(uri) {
+  const prefix = "data:image/svg+xml,";
+  expect(uri, "icon 必须是 SVG data URI").toMatch(/^data:image\/svg\+xml,/);
+  return decodeURIComponent(uri.slice(prefix.length));
+}
+
+describe("T14 打磨：i18n 骨架与图标", () => {
+  it("plugin.json description_i18n 含 zh-CN 与 en 双语，zh-CN 与 description 一致", () => {
+    const manifest = readJson(".zcode-plugin/plugin.json");
+    expect(manifest.description_i18n?.["zh-CN"]).toBeTruthy();
+    expect(manifest.description_i18n?.en).toBeTruthy();
+    expect(typeof manifest.description_i18n.en).toBe("string");
+    expect(manifest.description).toBe(manifest.description_i18n["zh-CN"]);
+  });
+
+  it("assets/icon.svg 存在且零外链（无 http(s) 引用、无脚本）", () => {
+    const svg = readFileSync(join(repoRoot, "assets/icon.svg"), "utf8");
+    expect(svg).toMatch(/<svg[^>]*xmlns="http:\/\/www\.w3\.org\/2000\/svg"/); // 命名空间是标准声明，非外链资源
+    expect(svg).toMatch(/viewBox=/);
+    expect(svg).not.toMatch(/https?:\/\/(?!www\.w3\.org)/); // 不引用任何网络资源
+    expect(svg).not.toMatch(/<script/i);
+    expect(svg).not.toMatch(/<image/i); // 不嵌位图/外链图
+  });
+
+  it("市场条目 icon 为内嵌 SVG data URI，且与 assets/icon.svg 内容一致", () => {
+    const market = marketplaceManifest(repoRoot, pkg);
+    const entry = market.plugins[0];
+    const svgAsset = readFileSync(join(repoRoot, "assets/icon.svg"), "utf8").trim();
+    expect(entry.icon).toMatch(/^data:image\/svg\+xml,/);
+    expect(decodeSvgDataUri(entry.icon)).toBe(svgAsset);
+  });
+
+  it("面板产物 html lang=zh-CN 且初始占位文案为中文（zh-CN 走查）", () => {
+    const html = readFileSync(join(repoRoot, "dist/ui/panel.html"), "utf8");
+    expect(html).toMatch(/<html lang="zh-CN">/);
+    expect(html).not.toContain("Loading"); // 初始占位不得残留英文
+    // 中文优先字体回退（Windows system-ui 不含中文字形；压缩器可能去引号，按名称断言）
+    expect(html).toMatch(/PingFang SC/);
+    expect(html).toMatch(/Microsoft YaHei/);
+  });
+});
+
 describe("本地市场清单生成（market/zci-local，dev 脚本生成物）", () => {
   it("生成条目：名称/版本与 package.json 同步，source 为原生绝对路径目录源", () => {
     const market = marketplaceManifest(repoRoot, pkg);
