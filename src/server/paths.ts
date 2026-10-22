@@ -20,3 +20,14 @@ export function resolveHeartbeatPath(env: NodeJS.ProcessEnv = process.env): stri
   const dataDir = env.ZCODE_PLUGIN_DATA ?? env.CLAUDE_PLUGIN_DATA ?? "";
   return dataDir ? join(dataDir, "heartbeat.json") : "";
 }
+
+/** rollout 目录（env 覆盖 → 宿主默认 <home>/.zcode/cli/rollout） */
+export function resolveRolloutDir(env: NodeJS.ProcessEnv = process.env): string {
+  if (env.ZCI_ROLLOUT_DIR) return env.ZCI_ROLLOUT_DIR;
+  return join(env.ZCI_HOME ?? homedir(), ".zcode", "cli", "rollout");
+}
+
+/** 会话 rollout 文件路径（文件名直拼契约 model-io-<sessionId>.jsonl，研究笔记 03 §7） */
+export function resolveRolloutPath(sessionId: string, env: NodeJS.ProcessEnv = process.env): string {
+  return join(resolveRolloutDir(env), `model-io-${sessionId}.jsonl`);
+}

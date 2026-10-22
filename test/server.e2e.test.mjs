@@ -12,15 +12,17 @@ const repoRoot = dirname(dirname(fileURLToPath(import.meta.url)));
 const pkg = JSON.parse(readFileSync(join(repoRoot, "package.json"), "utf8"));
 
 /** 起一个 MCP stdio 子进程，返回按 id 匹配响应的极简 JSON-RPC 客户端 */
-async function startServer() {
+async function startServer(extraEnv = {}) {
   const child = spawn(process.execPath, ["dist/server.mjs"], {
     cwd: repoRoot,
     stdio: ["pipe", "pipe", "pipe"],
-    // 红线隔离：e2e 不读真实宿主库，注入不存在的 db/心跳路径（工具应走 available=false 降级）
+    // 红线隔离：默认注入不存在的 db/心跳路径（工具应走 available=false 降级）；
+    // extraEnv 可注入仓库内合成夹具（绝不指向 ~/.zcode 真实数据）
     env: {
       ...process.env,
       ZCI_DB_PATH: join(repoRoot, "test", "fixtures", "e2e-absent.sqlite"),
       ZCI_HEARTBEAT_PATH: join(repoRoot, "test", "fixtures", "e2e-absent.json"),
+      ...extraEnv,
     },
   });
   const stderr = [];
@@ -176,6 +178,25 @@ describe("MCP server（stdio e2e）", () => {
     expect(payload.reason).toBe("db-not-found");
   });
 
+  it("tools/list 含 T7 工具 get_session_events / get_session_file_activity，app+model 双可见", async () => {
+    const result = await server.request("tools/list", {});
+    for (const name of ["get_session_events", "get_session_file_activity"]) {
+      const tool = result.tools.find((t) => t.name === name);
+      expect(tool, `工具列表: ${JSON.stringify(result.tools.map((t) => t.name))}`).toBeTruthy();
+      expect(tool._meta?.ui?.visibility).toEqual(["model", "app"]);
+    }
+  });
+
+  it("tools/call T7 工具（db 缺失时）降级 available=false，不报错", async () => {
+    for (const name of ["get_session_events", "get_session_file_activity"]) {
+      const result = await server.request("tools/call", { name, arguments: {} });
+      expect(result.isError).toBeFalsy();
+      const payload = result.structuredContent ?? JSON.parse(result.content[0].text);
+      expect(payload.available).toBe(false);
+      expect(payload.reason).toBe("db-not-found");
+    }
+  });
+
   it("resources/read 以 mcp-app MIME 返回自包含的 panel.html", async () => {
     const result = await server.request("resources/read", {
       uri: "ui://zcode-context-insight/panel.html",
@@ -185,4 +206,60 @@ describe("MCP server（stdio e2e）", () => {
     expect(content.mimeType).toBe("text/html;profile=mcp-app");
     expect(content.text).toContain('id="root"');
   });
+});
+
+describe("MCP server e2e：get_current_session_composition（T3）", () => {
+  it("tools/list 含 get_current_session_composition，app+model 双可见", async () => {
+    const result = await server.request("tools/list", {});
+    const tool = result.tools.find((t) => t.name === "get_current_session_composition");
+    expect(tool, `工具列表: ${JSON.stringify(result.tools.map((t) => t.name))}`).toBeTruthy();
+    expect(tool._meta?.ui?.visibility).toEqual(["model", "app"]);
+  });
+
+  it("无会话识别来源（无心跳且 db 缺失）时降级 available=false，不报错", async () => {
+    const result = await server.request("tools/call", {
+      name: "get_current_session_composition",
+      arguments: {},
+    });
+    expect(result.isError).toBeFalsy();
+    const payload = result.structuredContent ?? JSON.parse(result.content[0].text);
+    expect(payload.available).toBe(false);
+    expect(payload.reason).toBe("no-session");
+  });
+
+  it("夹具 env 注入（ZCI_DB_PATH/ZCI_HEARTBEAT_PATH/ZCI_ROLLOUT_DIR）全链路返回组成估算", async () => {
+    // 独立 server 实例：env 缝注入仓库内合成夹具（期望值同 test/composition.test.mjs 手算常量）
+    const fixtureServer = await startServer({
+      ZCI_DB_PATH: join(repoRoot, "test", "fixtures", "db.sqlite"),
+      ZCI_HEARTBEAT_PATH: join(repoRoot, "test", "fixtures", "heartbeat.json"),
+      ZCI_ROLLOUT_DIR: join(repoRoot, "test", "fixtures", "rollout"),
+    });
+    try {
+      await fixtureServer.request("initialize", {
+        protocolVersion: "2025-06-18",
+        capabilities: {},
+        clientInfo: { name: "zci-e2e-test", version: "0.0.0" },
+      });
+      fixtureServer.notify("notifications/initialized", {});
+      const result = await fixtureServer.request("tools/call", {
+        name: "get_current_session_composition",
+        arguments: {},
+      });
+      expect(result.isError).toBeFalsy();
+      const payload = result.structuredContent ?? JSON.parse(result.content[0].text);
+      expect(payload.available).toBe(true);
+      expect(payload.session.id).toBe("session_00000000000000000000000000000001");
+      expect(payload.session.source).toBe("heartbeat");
+      expect(payload.rollout.requests).toEqual({ total: 5, full: 2, delta: 2, tail: 1, other: 0 });
+      expect(payload.anchor.requestId).toBe("req-main-3");
+      expect(payload.exactTotalTokens).toBe(625);
+      expect(payload.composition.estimated).toBe(true);
+      expect(payload.composition.calibrated).toEqual({ system: 151, tools: 124, history: 213, currentTurn: 137 });
+      // 锚点校准不变量：Σcalibrated === 精确锚点
+      const sum = Object.values(payload.composition.calibrated).reduce((a, b) => a + b, 0);
+      expect(sum).toBe(payload.exactTotalTokens);
+    } finally {
+      fixtureServer.close();
+    }
+  }, 30000);
 });

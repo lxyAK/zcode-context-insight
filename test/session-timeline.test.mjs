@@ -142,6 +142,7 @@ describe("get_session_timeline（功能缝：直调 execute）", () => {
   it("压缩事件标记：含 preCompact/truePostCompact 与触发方式，并关联时间线序号", async () => {
     const payload = await callTool({}, { dbPath: fixtureDb, heartbeatPath: fixtureHeartbeat });
 
+    // S_MAIN 共两条压缩事件：T4 的自动压缩 + T7 并行工单加入的手动压缩（part_t7_compact_2）
     expect(payload.compactions).toEqual([
       {
         time: T0 + 55000, // part_fixture_compact_1 的 time_created
@@ -155,6 +156,19 @@ describe("get_session_timeline（功能缝：直调 execute）", () => {
         summarizedMessageCount: 2,
         keptMessageCount: 1,
         requestIndex: 5, // T0+55000 晚于全部 6 个请求（含 T5 追加行）→ 关联到末尾请求（index 5）
+      },
+      {
+        time: T0 + 58000, // part_t7_compact_2（T7 行集）
+        auto: false, // 触发方式：手动
+        trigger: "manual",
+        phase: null, // 该行未写 phase/compactReason
+        compactReason: null,
+        preCompactTokenCount: 4000,
+        postCompactTokenCount: 900,
+        truePostCompactTokenCount: 500,
+        summarizedMessageCount: 5,
+        keptMessageCount: 2,
+        requestIndex: 5,
       },
     ]);
   });
@@ -173,7 +187,7 @@ describe("get_session_timeline（功能缝：直调 execute）", () => {
     expect(c.preCompactTokenCount).toBe(1800);
   });
 
-  it("显式 sessionId：返回指定会话（S_OLD）的时间线与手动压缩标记（auto=false）", async () => {
+  it("显式 sessionId：返回指定会话（S_OLD）的时间线，无压缩事件（空态）", async () => {
     const payload = await callTool(
       { sessionId: S_OLD },
       { dbPath: fixtureDb, heartbeatPath: fixtureHeartbeat },
@@ -200,22 +214,8 @@ describe("get_session_timeline（功能缝：直调 execute）", () => {
         contextExceeded: false,
       },
     ]);
-    // part_fixture_compact_2（S_OLD 手动压缩）：T0+15000，晚于唯一请求 → requestIndex 0
-    expect(payload.compactions).toEqual([
-      {
-        time: T0 + 15000,
-        auto: false, // 触发方式：手动
-        trigger: "manual",
-        phase: "done",
-        compactReason: "user-requested",
-        preCompactTokenCount: 340,
-        postCompactTokenCount: 90,
-        truePostCompactTokenCount: 80,
-        summarizedMessageCount: 1,
-        keptMessageCount: 0,
-        requestIndex: 0,
-      },
-    ]);
+    // S_OLD 刻意无 part 行（T7 空态依据）；手动压缩场景由 S_MAIN 的 part_t7_compact_2 覆盖
+    expect(payload.compactions).toEqual([]);
   });
 
   it("db 缺失：available=false 降级返回，不抛错", async () => {
