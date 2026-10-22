@@ -1,6 +1,7 @@
 /**
  * Context 仪表盘页（T8 页面骨架；T2 概览/用量迁入，T3 组成条、T5 统计卡、
- * T7 事件流/文件活动区块、T6 Context Browser 在本页挂载）。各区块视图模块只做渲染，取数经 ctx.callTool。
+ * T7 事件流/文件活动区块、T6 Context Browser、T4 逐请求趋势在本页挂载）。
+ * 各区块视图模块只做渲染，取数经 ctx.callTool。
  *
  * 路由缝：ctx.params.sessionId 存在时（来自 Insights 会话卡片跳转），
  * 顶部渲染"已选会话"横幅（卡片携带的概要数据）；后续工单的会话级区块
@@ -12,6 +13,7 @@ import { t } from "../../i18n.ts";
 import { renderCompositionSection, type CompositionPayload } from "../composition.ts";
 import { renderStatsSection, type SessionStatsPayload } from "../stats.ts";
 import { createBrowserView, type CallToolFn } from "../browser.ts";
+import { renderTimelineSection, type TimelinePayload } from "../timeline.ts";
 import {
   renderEventsSection,
   renderFileActivitySection,
@@ -71,6 +73,16 @@ export const contextPage: PageDefinition = {
         doc,
         usageResult.ok ? (usageResult.payload as unknown as UsagePayload) : null,
         usageResult.ok ? null : usageResult.error,
+      ),
+    );
+
+    // 逐请求趋势（T4）：uPlot 趋势 + 压缩标记，视图在 views/timeline.ts；
+    // 独立降级（渲染函数接受 null，桥失败/工具报错同走"时间线暂不可用"）
+    const timelineResult = await ctx.callTool("get_session_timeline");
+    container.append(
+      renderTimelineSection(
+        doc,
+        timelineResult.ok ? (timelineResult.payload as unknown as TimelinePayload) : null,
       ),
     );
 

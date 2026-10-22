@@ -32,7 +32,9 @@ const MAIN_EVENTS = [
   { type: "model_change", time: T0 + 35000, modelId: "GLM-5.4", providerId: "account:fixture" },
   {
     type: "compaction", time: T0 + 55000, trigger: "auto",
-    preCompactTokens: 1800, postCompactTokens: 300, truePostCompactTokens: 300,
+    // postCompactTokens=350 为含总结消息口径；真实压缩后 truePost=300
+    // （T4 双口径夹具语义，见 make-fixtures.mjs insertMessageAndPart 注释）
+    preCompactTokens: 1800, postCompactTokens: 350, truePostCompactTokens: 300,
     summarizedMessages: 2, keptMessages: 1,
   },
   {

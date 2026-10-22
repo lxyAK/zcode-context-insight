@@ -109,7 +109,89 @@ body,
   background: var(--color-warning, #e67e22);
 }
 
+/* ===== 逐请求趋势（T4）===== */
 
+/* 时间线区块为 tooltip 的定位上下文 */
+.zci-timeline {
+  position: relative;
+}
+
+.zci-tl-chart {
+  overflow-x: auto; /* 窄面板下图表横向滚动，避免挤压变形 */
+  margin-bottom: 6px;
+}
+
+.zci-tl-chart-fallback {
+  padding: 6px 8px;
+  border: 1px dashed var(--color-border-default, #ddd);
+  border-radius: 6px;
+}
+
+.zci-tl-row {
+  font-family: ui-monospace, Consolas, monospace;
+  font-size: 11px;
+  white-space: nowrap;
+  color: var(--color-text-primary, #222);
+}
+
+.zci-tl-markers-title {
+  font-size: 12px;
+  font-weight: 600;
+  margin: 6px 0 4px;
+  color: var(--color-text-primary, #222);
+}
+
+.zci-tl-markers {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+/* 压缩事件标记：可辨识的警示色胶囊，可悬停/聚焦查看明细 */
+.zci-tl-marker {
+  font-size: 11px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  cursor: pointer;
+  color: var(--color-text-on-warning, #fff);
+  background: var(--color-warning, #e67e22);
+}
+
+.zci-tl-marker:focus-visible {
+  outline: 2px solid var(--color-ring-focus, #4f8ef7);
+  outline-offset: 1px;
+}
+
+/* 悬停 tooltip（图表逐点与压缩明细共用） */
+.zci-tl-tip {
+  position: absolute;
+  z-index: 10;
+  max-width: 300px;
+  padding: 6px 8px;
+  border-radius: 6px;
+  border: 1px solid var(--color-border-default, #ddd);
+  background: var(--color-background-secondary, #f5f5f5);
+  color: var(--color-text-primary, #222);
+  font-size: 11px;
+  line-height: 1.5;
+  pointer-events: none; /* 悬停穿透，避免闪烁 */
+}
+
+.zci-tl-tip[hidden] {
+  display: none;
+}
+
+.zci-tl-tip-title {
+  font-weight: 600;
+  margin-bottom: 2px;
+}
+
+.zci-tl-tip-row {
+  white-space: nowrap;
+}
 
 /* 上下文组成条（T3）：估算角标与四分组 SVG/图例 */
 .zci-badge-estimate {
@@ -237,7 +319,8 @@ body,
   margin-left: auto;
   font-family: ui-monospace, Consolas, monospace;
   white-space: nowrap;
- 
+}
+
 /* ============ Context Browser（T6：请求序列 + 组成明细 + DNA 扁平） ============ */
 
 .zci-browser-head {
@@ -620,6 +703,8 @@ body,
 .zci-fleet-metric-value {
   font-family: ui-monospace, Consolas, monospace;
   font-weight: 600;
+}
+
 /* T7 事件流 / 文件活动列表：限高滚动容器 + 行内布局 */
 .zci-list {
   overflow-y: auto;

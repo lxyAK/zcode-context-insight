@@ -286,25 +286,39 @@ function insertTurnUsage(db) {
   ).run(S_MAIN, "turn_fixture_1", T0 + 10000, T0 + 23000, 13000, 1250, 2, 1, 1500, 300, 50, 100, 1200, 1800);
 }
 
-/** message + part 最小行集：一条 user 消息 + 一条 compaction part（T4 压缩标记的锚点示例） */
+/**
+ * message + part 行集（T4 压缩标记的权威来源，结构对照研究笔记 03 §5）：
+ * S_MAIN 一条自动压缩 part；S_OLD 不放任何 part 行（T7 事件流测试的"空态"依据）。
+ *
+ * truePostCompactTokenCount 语义夹具（工单 T4 验收项）：
+ *  - postCompactTokenCount = 350：含总结消息在内的 post 值（= truePost 300 + 总结消息约 50）；
+ *  - truePostCompactTokenCount = 300：真实压缩后上下文 token 数。
+ * 两者刻意取不同值，使"真实压缩后"与"含总结消息"两个口径在断言中可区分。
+ * 手动压缩场景由 T7 的 part_t7_compact_2（S_MAIN，auto=false）覆盖。
+ */
 function insertMessageAndPart(db) {
   db.prepare(
     `INSERT INTO message (id, session_id, time_created, time_updated, data, sequence)
      VALUES (?, ?, ?, ?, ?, ?)`,
   ).run("msg_fixture_1", S_MAIN, T0 + 9000, T0 + 9000,
     JSON.stringify({ role: "user", time: T0 + 9000 }), 1);
+  // S_MAIN 的自动压缩（T4 时间线标记的主锚点）。S_OLD 刻意不放任何 part 行
+  // （T7 事件流测试的"空态"依据）；手动压缩场景由 T7 的 part_t7_compact_2（S_MAIN）覆盖。
   db.prepare(
     `INSERT INTO part (id, message_id, session_id, time_created, time_updated, data, sequence)
      VALUES (?, ?, ?, ?, ?, ?, ?)`,
   ).run("part_fixture_compact_1", "msg_fixture_1", S_MAIN, T0 + 55000, T0 + 55000,
     JSON.stringify({
       type: "compaction",
-      auto: true,
+      auto: true, // 触发方式：自动
+      trigger: "auto",
+      phase: "done",
+      compactReason: "approaching-context-limit",
       compactBoundary: {
         boundaryId: "cb_fixture_1",
-        preCompactTokenCount: 1800,
-        postCompactTokenCount: 300,
-        truePostCompactTokenCount: 300,
+        preCompactTokenCount: 1800,   // 压缩前 token（对照 mu_main_1/mu_main_2 的总量量级）
+        postCompactTokenCount: 350,   // 含总结消息的 post 值
+        truePostCompactTokenCount: 300, // 真实压缩后上下文 token
         summarizedMessageCount: 2,
         keptMessageCount: 1,
       },
