@@ -206,7 +206,7 @@ describe("面板三页骨架与路由（mock 桥）", () => {
 
     const root = document.getElementById("root");
     expect(root.textContent).toContain("mock-greeting-骨架连通");
-    expect(root.textContent).toContain("1510"); // 精确用量数字
+    expect(root.textContent).toContain("4405"); // 精确用量数字（USAGE_RESULT 总量；T2 时代 1510 已随夹具演进）
     expect(root.textContent).toContain("心跳精确"); // 识别来源标注
   });
 

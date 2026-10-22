@@ -16,6 +16,11 @@ import type { ToolDefinition } from "./registry.ts";
 import { getOverviewTool } from "./tools/get_overview.ts";
 import { createCurrentSessionUsageTool } from "./tools/get_current_session_usage.ts";
 import { createSessionTimelineTool } from "./tools/get_session_timeline.ts";
+import { createGetSettingsTool } from "./tools/get_settings.ts";
+import { createSetSettingsTool } from "./tools/set_settings.ts";
+import { createGetDataVersionTool } from "./tools/get_data_version.ts";
+import { resolveDbPath, resolveRolloutDir } from "./paths.ts";
+import { createDataVersionWatcher } from "./watcher.ts";
 import { createCurrentSessionCompositionTool } from "./tools/get_current_session_composition.ts";
 import { createListSessionRequestsTool, createGetRequestDetailTool } from "./tools/request-detail.ts";
 import { createSessionStatsTool } from "./tools/get_session_stats.ts";
@@ -27,11 +32,20 @@ import { createInsightsTool } from "./tools/get_insights.ts";
 import { createActivityTool } from "./tools/activity.ts";
 import { registerPanelResource } from "./panel-resource.ts";
 
+/** 数据版本监视器：fs.watch 双数据源（db.sqlite 目录 + rollout 目录），面板轮询比对自动刷新 */
+const dataWatcher = createDataVersionWatcher({
+  dbPath: resolveDbPath(),
+  rolloutDir: resolveRolloutDir(),
+});
+
 /** 工具注册表：新工具在此追加（扩展缝） */
 const tools: ToolDefinition[] = [
   getOverviewTool,
   createCurrentSessionUsageTool(),
   createSessionTimelineTool(),
+  createGetSettingsTool(),
+  createSetSettingsTool(),
+  createGetDataVersionTool({ watcher: dataWatcher }),
   createCurrentSessionCompositionTool(),
   createSessionStatsTool(),
   createFleetTreeTool(),
@@ -52,7 +66,7 @@ function registerTools(server: McpServer, defs: ToolDefinition[]): void {
         title: def.title,
         description: def.description,
         inputSchema: def.inputSchema,
-        annotations: { readOnlyHint: true },
+        annotations: { readOnlyHint: def.readOnlyHint !== false },
         _meta: { ui: { visibility: def.visibility } },
       },
       async (args) => def.execute(args as Record<string, unknown>),
@@ -65,6 +79,7 @@ export async function main(): Promise<void> {
   const server = new McpServer({ name: PLUGIN_NAME, version: PLUGIN_VERSION });
   registerTools(server, tools);
   registerPanelResource(server);
+  dataWatcher.start(); // 源缺失时内部容错（watching=false），不影响 server 启动
   await server.connect(new StdioServerTransport());
 }
 

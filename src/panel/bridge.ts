@@ -101,4 +101,25 @@ export class BridgeClient {
   notify(method: string, params: unknown): void {
     this.transport.send({ jsonrpc: "2.0", method, params });
   }
+
+  /**
+   * callServerTool（tools/call）的 JSON 封装：取首个 text 内容块解析为对象。
+   * 桥错误/非文本/非法 JSON 一律返回 null（调用方降级），不抛错。
+   */
+  async callToolJson<T>(name: string, args: Record<string, unknown>): Promise<T | null> {
+    let result: unknown;
+    try {
+      result = await this.request("tools/call", { name, arguments: args });
+    } catch {
+      return null;
+    }
+    const content = (result as { content?: Array<{ type: string; text?: string }> })?.content;
+    const text = content?.find((c) => c.type === "text")?.text;
+    if (!text) return null;
+    try {
+      return JSON.parse(text) as T;
+    } catch {
+      return null;
+    }
+  }
 }
