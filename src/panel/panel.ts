@@ -1,30 +1,19 @@
 /**
- * 面板装配层：ui/initialize 握手 → callServerTool(get_overview / get_current_session_usage) → 渲染。
- * 页面骨架（页头 + 概览区 + 当前会话用量区）在此；后续工单的页面（Insights / Context 仪表盘 / Fleet）
- * 以新文件加入并在 renderOverview 处替换/扩展，不动桥协议层。
+ * 面板装配层（T8 起为路由壳）：ui/initialize 握手 → 壳（页头 + 三页导航 + 内容区）
+ * → navigate 装载页面。页面内容在 views/pages/ 各视图模块实现，经 views/registry.ts
+ * 的 PAGES 注册表挂载（后续工单的扩展缝）；本层只管桥协议、壳与路由。
  */
-
-/** 当前会话用量载荷（get_current_session_usage 的 structuredContent 形状） */
-interface UsagePayload {
-  available: boolean;
-  reason?: string;
-  session?: {
-    id: string;
-    source: "heartbeat" | "inferred";
-    title: string | null;
-  } | null;
-  usage?: {
-    requests: number;
-    inputTokens: number;
-    outputTokens: number;
-    cacheReadTokens: number;
-    cacheWriteTokens: number;
-    computedTotalTokens: number;
-  } | null;
-}
 import pkg from "../../package.json";
 import { BridgeClient, PostMessageTransport } from "./bridge.ts";
 import type { PostTarget } from "./bridge.ts";
+import { el } from "./views/dom.ts";
+import {
+  PAGES,
+  DEFAULT_PAGE_ID,
+  type PageContext,
+  type RouteParams,
+  type ToolCallResult,
+} from "./views/registry.ts";
 
 /** MCP Apps 协议版本（研究笔记 02 §2，与官方面板一致） */
 export const PROTOCOL_VERSION = "2026-01-26";
@@ -56,126 +45,71 @@ export async function mountPanel(opts: MountOptions): Promise<void> {
 
   bridge.notify("ui/notifications/initialized", {});
 
-  let result: { content?: Array<{ type: string; text?: string }> };
-  try {
-    result = (await bridge.request("tools/call", {
-      name: "get_overview",
-      arguments: {},
-    })) as { content?: Array<{ type: string; text?: string }> };
-  } catch (err) {
-    renderError(container, err instanceof Error ? err.message : String(err));
-    return;
-  }
+  /** callServerTool 封装：解析 text 块 JSON；桥错误转 { ok:false, error }（页面渲染，不吞错） */
+  const callTool = async (
+    name: string,
+    args?: Record<string, unknown>,
+  ): Promise<ToolCallResult> => {
+    try {
+      const result = (await bridge.request("tools/call", {
+        name,
+        arguments: args ?? {},
+      })) as { content?: Array<{ type: string; text?: string }> };
+      const text = result.content?.find((c) => c.type === "text")?.text;
+      if (!text) return { ok: false, error: `${name} 未返回文本内容` };
+      return { ok: true, payload: JSON.parse(text) as Record<string, unknown> };
+    } catch (err) {
+      return { ok: false, error: err instanceof Error ? err.message : String(err) };
+    }
+  };
 
-  const textBlock = result.content?.find((c) => c.type === "text");
-  if (!textBlock?.text) {
-    renderError(container, "get_overview 未返回文本内容");
-    return;
-  }
-
-  // 当前会话用量（T2）：独立 try/catch，失败不炸概览区
-  let usage: UsagePayload | null = null;
-  try {
-    const usageResult = (await bridge.request("tools/call", {
-      name: "get_current_session_usage",
-      arguments: {},
-    })) as { content?: Array<{ type: string; text?: string }> };
-    const usageText = usageResult.content?.find((c) => c.type === "text")?.text;
-    usage = usageText ? (JSON.parse(usageText) as UsagePayload) : null;
-  } catch {
-    usage = null; // 桥错误 → 降级提示
-  }
-
-  renderOverview(container, init, JSON.parse(textBlock.text), usage);
-}
-
-function el(
-  doc: Document,
-  tag: string,
-  className: string,
-  text?: string,
-): HTMLElement {
-  const node = doc.createElement(tag);
-  node.className = className;
-  if (text !== undefined) node.textContent = text;
-  return node;
-}
-
-function renderOverview(
-  container: HTMLElement,
-  init: { hostInfo?: { name?: string; version?: string } },
-  payload: { plugin?: string; version?: string; server?: string; greeting?: string },
-  usage: UsagePayload | null,
-): void {
+  // ---- 壳：页头 + 页导航 + 内容区 ----
   const doc = container.ownerDocument;
   container.replaceChildren();
 
   const header = el(doc, "header", "zci-header");
   header.append(
     el(doc, "h1", "zci-title", "Context Insight"),
-    el(doc, "span", "zci-version", payload.version ? `v${payload.version}` : ""),
+    el(doc, "span", "zci-version", `已连接 ${init.hostInfo?.name ?? "host"}`),
   );
 
-  const section = el(doc, "section", "zci-section");
-  const kv = (label: string, value: string | undefined) => {
-    const row = el(doc, "div", "zci-kv");
-    row.append(el(doc, "span", "zci-kv-label", label), el(doc, "span", "zci-kv-value", value ?? "-"));
-    return row;
-  };
-  section.append(
-    el(doc, "p", "zci-status", `已连接 ${init.hostInfo?.name ?? "host"}`),
-    kv("插件", payload.plugin),
-    kv("MCP server", payload.server),
-    el(doc, "p", "zci-greeting", payload.greeting ?? ""),
-  );
-
-  const footer = el(doc, "footer", "zci-footer", "骨架就绪：后续工单将在此装载 Insights / Context 仪表盘 / Fleet 页面。");
-
-  container.append(header, section, renderUsageSection(doc, usage, kv), footer);
-}
-
-/** 当前会话精确用量区（T2）：数字 + 识别来源标注（心跳精确 / 推断）；不可用时降级提示 */
-function renderUsageSection(
-  doc: Document,
-  usage: UsagePayload | null,
-  kv: (label: string, value: string | undefined) => HTMLElement,
-): HTMLElement {
-  const section = el(doc, "section", "zci-section");
-  const title = el(doc, "h2", "zci-subtitle", "当前会话精确用量");
-  section.append(title);
-
-  if (!usage?.available || !usage.usage || !usage.session) {
-    section.append(el(doc, "p", "zci-status", "用量暂不可用（未检测到宿主数据库或心跳）"));
-    return section;
+  const nav = el(doc, "nav", "zci-nav");
+  const content = el(doc, "main", "zci-content");
+  const navButtons = new Map<string, HTMLButtonElement>();
+  for (const page of PAGES) {
+    const btn = el(doc, "button", "zci-nav-btn", page.title) as HTMLButtonElement;
+    btn.type = "button";
+    btn.addEventListener("click", () => navigate(page.id, {}));
+    nav.append(btn);
+    navButtons.set(page.id, btn);
   }
 
-  // 识别来源标注（ADR-0003：heartbeat=心跳精确；inferred=最近活跃推断）
-  const badge = el(
-    doc,
-    "span",
-    usage.session.source === "heartbeat" ? "zci-badge zci-badge-exact" : "zci-badge zci-badge-inferred",
-    usage.session.source === "heartbeat" ? "心跳精确" : "推断（最近活跃会话）",
-  );
-  title.append(badge);
+  container.append(header, nav, content);
 
-  section.append(
-    kv("会话", usage.session.id),
-    kv("请求数", String(usage.usage.requests)),
-    kv("输入 token", String(usage.usage.inputTokens)),
-    kv("输出 token", String(usage.usage.outputTokens)),
-    kv("缓存读 token", String(usage.usage.cacheReadTokens)),
-    kv("缓存写 token", String(usage.usage.cacheWriteTokens)),
-    kv("总量 token", String(usage.usage.computedTotalTokens)),
-  );
-  return section;
-}
+  /** 路由：高亮导航 + 清空内容区 + 装载目标页（挂载错误渲染进内容区而非白屏） */
+  const navigate = (pageId: string, params: RouteParams = {}): void => {
+    const page = PAGES.find((p) => p.id === pageId) ?? PAGES[0];
+    for (const [id, btn] of navButtons) btn.classList.toggle("zci-nav-active", id === page.id);
+    content.replaceChildren();
+    const ctx: PageContext = {
+      doc,
+      container: content,
+      params,
+      navigate,
+      callTool,
+      hostName: init.hostInfo?.name,
+    };
+    Promise.resolve(page.mount(ctx)).catch((err: unknown) => {
+      content.replaceChildren(
+        el(
+          doc,
+          "p",
+          "zci-error",
+          `页面加载失败（${page.title}）: ${err instanceof Error ? err.message : String(err)}`,
+        ),
+      );
+    });
+  };
 
-function renderError(container: HTMLElement, message: string): void {
-  const doc = container.ownerDocument;
-  container.replaceChildren(
-    el(doc, "header", "zci-header", ""),
-    el(doc, "p", "zci-error", `工具调用失败: ${message}`),
-  );
-  const header = container.querySelector(".zci-header");
-  if (header) header.append(el(doc, "h1", "zci-title", "Context Insight"));
+  navigate(DEFAULT_PAGE_ID, {});
 }

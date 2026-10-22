@@ -107,3 +107,181 @@ body,
   color: var(--color-text-on-warning, #fff);
   background: var(--color-warning, #e67e22);
 }
+
+/* ---- 三页导航（T8 路由壳）---- */
+.zci-nav {
+  display: flex;
+  gap: 4px;
+  margin-bottom: 10px;
+  border-bottom: 1px solid var(--color-border-default, #ddd);
+}
+
+.zci-nav-btn {
+  appearance: none;
+  border: none;
+  border-bottom: 2px solid transparent;
+  background: transparent;
+  color: var(--color-text-secondary, #888);
+  font: inherit;
+  font-weight: 500;
+  padding: 4px 10px;
+  cursor: pointer;
+}
+
+.zci-nav-btn:hover {
+  color: var(--color-text-primary, #222);
+}
+
+.zci-nav-btn.zci-nav-active {
+  color: var(--color-text-primary, #222);
+  border-bottom-color: var(--color-info, #2980b9);
+}
+
+.zci-content {
+  min-height: 120px;
+}
+
+/* ---- KPI 带 ---- */
+.zci-kpi-band {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.zci-kpi-card {
+  flex: 1;
+  padding: 8px 10px;
+  border-radius: 6px;
+  background: var(--color-background-secondary, #f5f5f5);
+  text-align: center;
+}
+
+.zci-kpi-value {
+  font-size: 16px;
+  font-weight: 600;
+  font-family: ui-monospace, Consolas, monospace;
+}
+
+.zci-kpi-label {
+  font-size: 11px;
+  color: var(--color-text-secondary, #888);
+}
+
+/* ---- 7 天趋势（手写柱状图）---- */
+.zci-trend {
+  display: flex;
+  align-items: flex-end;
+  gap: 4px;
+  padding: 8px;
+  border-radius: 6px;
+  background: var(--color-background-secondary, #f5f5f5);
+}
+
+.zci-trend-bar {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 2px;
+  min-width: 0;
+}
+
+.zci-trend-fill {
+  width: 100%;
+  max-width: 36px;
+  border-radius: 3px 3px 0 0;
+  background: var(--color-info, #2980b9);
+}
+
+.zci-trend-value {
+  font-size: 9px;
+  font-family: ui-monospace, Consolas, monospace;
+  white-space: nowrap;
+}
+
+.zci-trend-date {
+  font-size: 9px;
+  color: var(--color-text-secondary, #888);
+  white-space: nowrap;
+}
+
+/* ---- 会话卡片与筛选 ---- */
+.zci-count {
+  font-size: 11px;
+  font-weight: 400;
+  color: var(--color-text-secondary, #888);
+}
+
+.zci-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+
+.zci-filter {
+  font: inherit;
+  font-size: 12px;
+  padding: 2px 6px;
+  border-radius: 6px;
+  border: 1px solid var(--color-border-default, #ddd);
+  background: var(--color-background-primary, #fff);
+  color: var(--color-text-primary, #222);
+}
+
+.zci-session-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.zci-session-card {
+  appearance: none;
+  text-align: left;
+  font: inherit;
+  cursor: pointer;
+  padding: 8px 10px;
+  border-radius: 6px;
+  border: 1px solid var(--color-border-default, #ddd);
+  background: var(--color-background-primary, #fff);
+  color: var(--color-text-primary, #222);
+}
+
+.zci-session-card:hover {
+  border-color: var(--color-info, #2980b9);
+  background: var(--color-background-secondary, #f5f5f5);
+}
+
+.zci-session-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.zci-session-title {
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.zci-session-meta {
+  font-size: 11px;
+  color: var(--color-text-secondary, #888);
+}
+
+.zci-session-tokens {
+  font-size: 12px;
+  font-family: ui-monospace, Consolas, monospace;
+}
+
+.zci-badge-sub {
+  color: var(--color-text-on-info, #fff);
+  background: var(--color-info, #2980b9);
+}
+
+.zci-badge-route {
+  color: var(--color-text-secondary, #555);
+  background: var(--color-background-tertiary, #eee);
+}

@@ -238,7 +238,7 @@ function querySessions(db: DatabaseSync, filter: SessionFilter): { total: number
        ORDER BY ${orderBy}
        LIMIT ?`,
     )
-    .all(...listParams, filter.limit) as Array<SessionListItem>;
+    .all(...listParams, filter.limit) as unknown as Array<SessionListItem>;
 
   return { total: totalRow[0]?.total ?? 0, items: rows };
 }
