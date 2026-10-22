@@ -25,6 +25,8 @@ interface UsagePayload {
 import pkg from "../../package.json";
 import { BridgeClient, PostMessageTransport } from "./bridge.ts";
 import type { PostTarget } from "./bridge.ts";
+import { renderTimelineSection } from "./views/timeline.ts";
+import type { TimelinePayload } from "./views/timeline.ts";
 
 /** MCP Apps 协议版本（研究笔记 02 §2，与官方面板一致） */
 export const PROTOCOL_VERSION = "2026-01-26";
@@ -86,7 +88,20 @@ export async function mountPanel(opts: MountOptions): Promise<void> {
     usage = null; // 桥错误 → 降级提示
   }
 
-  renderOverview(container, init, JSON.parse(textBlock.text), usage);
+  // 逐请求时间线（T4）：独立 try/catch，失败不炸其余区块；渲染在 views/timeline.ts
+  let timeline: TimelinePayload | null = null;
+  try {
+    const tlResult = (await bridge.request("tools/call", {
+      name: "get_session_timeline",
+      arguments: {},
+    })) as { content?: Array<{ type: string; text?: string }> };
+    const tlText = tlResult.content?.find((c) => c.type === "text")?.text;
+    timeline = tlText ? (JSON.parse(tlText) as TimelinePayload) : null;
+  } catch {
+    timeline = null; // 桥错误 → 降级提示
+  }
+
+  renderOverview(container, init, JSON.parse(textBlock.text), usage, timeline);
 }
 
 function el(
@@ -106,6 +121,7 @@ function renderOverview(
   init: { hostInfo?: { name?: string; version?: string } },
   payload: { plugin?: string; version?: string; server?: string; greeting?: string },
   usage: UsagePayload | null,
+  timeline: TimelinePayload | null,
 ): void {
   const doc = container.ownerDocument;
   container.replaceChildren();
@@ -131,7 +147,7 @@ function renderOverview(
 
   const footer = el(doc, "footer", "zci-footer", "骨架就绪：后续工单将在此装载 Insights / Context 仪表盘 / Fleet 页面。");
 
-  container.append(header, section, renderUsageSection(doc, usage, kv), footer);
+  container.append(header, section, renderUsageSection(doc, usage, kv), renderTimelineSection(doc, timeline), footer);
 }
 
 /** 当前会话精确用量区（T2）：数字 + 识别来源标注（心跳精确 / 推断）；不可用时降级提示 */
