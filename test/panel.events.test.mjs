@@ -62,8 +62,8 @@ const EVENTS_RESULT = text({
   events: [
     { type: "model_change", time: 1792600015000, modelId: "GLM-5.3", providerId: "account:fixture" },
     { type: "model_change", time: 1792600035000, modelId: "GLM-5.4", providerId: "account:fixture" },
-    { type: "compaction", time: 1792600055000, trigger: "auto", preCompactTokens: 1800, postCompactTokens: 300, truePostCompactTokens: 300, summarizedMessages: 2, keptMessages: 1 },
-    { type: "compaction", time: 1792600058000, trigger: "manual", preCompactTokens: 4000, postCompactTokens: 900, truePostCompactTokens: 500, summarizedMessages: 5, keptMessages: 2 },
+    { type: "compaction", time: 1792600055000, trigger: "auto", preCompactTokenCount: 1800, postCompactTokenCount: 300, truePostCompactTokenCount: 300, summarizedMessageCount: 2, keptMessageCount: 1 },
+    { type: "compaction", time: 1792600058000, trigger: "manual", preCompactTokenCount: 4000, postCompactTokenCount: 900, truePostCompactTokenCount: 500, summarizedMessageCount: 5, keptMessageCount: 2 },
   ],
 });
 

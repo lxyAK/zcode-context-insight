@@ -15,9 +15,9 @@ export interface EventsPayload {
     type: "compaction" | "model_change" | string;
     time: number;
     trigger?: "manual" | "auto" | "unknown" | null;
-    preCompactTokens?: number | null;
-    postCompactTokens?: number | null;
-    summarizedMessages?: number | null;
+    preCompactTokenCount?: number | null;
+    postCompactTokenCount?: number | null;
+    summarizedMessageCount?: number | null;
     modelId?: string | null;
     providerId?: string | null;
   }> | null;
@@ -72,10 +72,10 @@ export function renderEventsSection(doc: Document, payload: EventsPayload | null
     if (ev.type === "compaction") {
       // 触发方式（spec：压缩事件必含）；token 数缺失时只显示触发方式
       main = ev.trigger === "manual" ? "压缩（手动）" : ev.trigger === "auto" ? "压缩（自动）" : "压缩";
-      if (ev.preCompactTokens != null && ev.postCompactTokens != null) {
-        detail = `${ev.preCompactTokens} → ${ev.postCompactTokens} token`;
+      if (ev.preCompactTokenCount != null && ev.postCompactTokenCount != null) {
+        detail = `${ev.preCompactTokenCount} → ${ev.postCompactTokenCount} token`;
       }
-      if (ev.summarizedMessages != null) detail += ` · 总结 ${ev.summarizedMessages} 条`;
+      if (ev.summarizedMessageCount != null) detail += ` · 总结 ${ev.summarizedMessageCount} 条`;
     } else if (ev.type === "model_change") {
       main = "模型切换";
       detail = ev.modelId ?? ev.providerId ?? "";

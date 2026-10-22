@@ -32,15 +32,16 @@ const MAIN_EVENTS = [
   { type: "model_change", time: T0 + 35000, modelId: "GLM-5.4", providerId: "account:fixture" },
   {
     type: "compaction", time: T0 + 55000, trigger: "auto",
-    // postCompactTokens=350 为含总结消息口径；真实压缩后 truePost=300
+    // postCompactTokenCount=350 为含总结消息口径；真实压缩后 truePost=300
     // （T4 双口径夹具语义，见 make-fixtures.mjs insertMessageAndPart 注释）
-    preCompactTokens: 1800, postCompactTokens: 350, truePostCompactTokens: 300,
-    summarizedMessages: 2, keptMessages: 1,
+    // 字段名与 fetchCompactionEvents（压缩事件唯一解析点，P0-5）统一
+    preCompactTokenCount: 1800, postCompactTokenCount: 350, truePostCompactTokenCount: 300,
+    summarizedMessageCount: 2, keptMessageCount: 1,
   },
   {
     type: "compaction", time: T0 + 58000, trigger: "manual",
-    preCompactTokens: 4000, postCompactTokens: 900, truePostCompactTokens: 500,
-    summarizedMessages: 5, keptMessages: 2,
+    preCompactTokenCount: 4000, postCompactTokenCount: 900, truePostCompactTokenCount: 500,
+    summarizedMessageCount: 5, keptMessageCount: 2,
   },
 ];
 

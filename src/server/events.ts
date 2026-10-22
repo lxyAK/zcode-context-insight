@@ -2,9 +2,9 @@
  * 会话事件流与文件活动查询（T7；part 表的事件视角读取缝）。
  *
  * 数据形状对照真实宿主库实测（研究笔记 03 §5）：
- *  - 压缩事件：part.data.type='compaction'，trigger='manual'|'auto'（缺失时按 auto 布尔推导），
- *    token 数在 compactBoundary（preCompactTokenCount / postCompactTokenCount /
- *    truePostCompactTokenCount / summarizedMessageCount / keptMessageCount）——字段漂移容错为 null；
+ *  - 压缩事件：part.data.type='compaction'，经 usage.ts 的 fetchCompactionEvents 统一
+ *    解析（P0-5 唯一解析点：pre/post/truePostCompactTokenCount、summarized/kept
+ *    MessageCount、归一触发方式与 time_created+sequence 序次键）；
  *  - 模型切换：part.data.type='timeline' 且 timelineType='model_change'，
  *    目标模型优先取 toModelSelection（camelCase），缺失回退 toModel（全大写键）；
  *  - 文件活动：part.data.type='tool' 且 tool ∈ {Read,Write,Edit,Grep,Glob}，
@@ -14,6 +14,7 @@
  * 排序：一律按 part.time_created 升序（sequence 作稳定次序键）——时间流视图的公共契约。
  */
 import type { DatabaseSync } from "node:sqlite";
+import { fetchCompactionEvents } from "./usage.ts";
 
 /** 会话事件（判别联合：compaction | model_change） */
 export type SessionEvent =
@@ -22,11 +23,11 @@ export type SessionEvent =
       time: number;
       /** 触发方式：manual=用户手动 / auto=宿主自动（spec 要求压缩事件必含） */
       trigger: "manual" | "auto" | "unknown";
-      preCompactTokens: number | null;
-      postCompactTokens: number | null;
-      truePostCompactTokens: number | null;
-      summarizedMessages: number | null;
-      keptMessages: number | null;
+      preCompactTokenCount: number | null;
+      postCompactTokenCount: number | null;
+      truePostCompactTokenCount: number | null;
+      summarizedMessageCount: number | null;
+      keptMessageCount: number | null;
     }
   | {
       type: "model_change";
@@ -73,37 +74,18 @@ function safeParseJson(text: string): Record<string, unknown> | null {
 export function listSessionEvents(db: DatabaseSync, sessionId: string): SessionEvent[] {
   const events: SessionEvent[] = [];
 
-  // 压缩事件（spec 指定来源：DB 的 compaction part；先按 session_id 过滤走 part_session_idx）
-  // json_valid 前置过滤（T13）：data 非法 JSON 的行跳过，不毒化整查询
-  const compactions = db
-    .prepare(
-      `SELECT time_created, data FROM part
-       WHERE session_id = ? AND json_valid(data) AND json_extract(data, '$.type') = 'compaction'
-       ORDER BY time_created ASC, sequence ASC`,
-    )
-    .all(sessionId) as Array<{ time_created: number; data: string }>;
-  for (const row of compactions) {
-    const d = safeParseJson(row.data);
-    if (!d) continue; // 坏行跳过
-    const boundary = (d.compactBoundary ?? {}) as Record<string, unknown>;
-    // 触发方式：trigger 字段优先（实测 'manual'|'auto'），缺失时按 auto 布尔推导
-    const trigger: "manual" | "auto" | "unknown" =
-      d.trigger === "manual" || d.trigger === "auto"
-        ? d.trigger
-        : typeof d.auto === "boolean"
-          ? d.auto
-            ? "auto"
-            : "manual"
-          : "unknown";
+  // 压缩事件（spec 指定来源：DB 的 compaction part）：复用唯一解析点
+  // fetchCompactionEvents（字段口径/触发方式/序次键统一，P0-5），此处只做载荷映射
+  for (const c of fetchCompactionEvents(db, sessionId)) {
     events.push({
       type: "compaction",
-      time: row.time_created,
-      trigger,
-      preCompactTokens: typeof boundary.preCompactTokenCount === "number" ? boundary.preCompactTokenCount : null,
-      postCompactTokens: typeof boundary.postCompactTokenCount === "number" ? boundary.postCompactTokenCount : null,
-      truePostCompactTokens: typeof boundary.truePostCompactTokenCount === "number" ? boundary.truePostCompactTokenCount : null,
-      summarizedMessages: typeof boundary.summarizedMessageCount === "number" ? boundary.summarizedMessageCount : null,
-      keptMessages: typeof boundary.keptMessageCount === "number" ? boundary.keptMessageCount : null,
+      time: c.time,
+      trigger: c.triggerKind,
+      preCompactTokenCount: c.preCompactTokenCount,
+      postCompactTokenCount: c.postCompactTokenCount,
+      truePostCompactTokenCount: c.truePostCompactTokenCount,
+      summarizedMessageCount: c.summarizedMessageCount,
+      keptMessageCount: c.keptMessageCount,
     });
   }
 

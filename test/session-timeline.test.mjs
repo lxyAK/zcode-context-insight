@@ -148,6 +148,7 @@ describe("get_session_timeline（功能缝：直调 execute）", () => {
         time: T0 + 55000, // part_fixture_compact_1 的 time_created
         auto: true, // 触发方式：自动
         trigger: "auto",
+        triggerKind: "auto", // 归一触发方式（P0-5 唯一解析点 fetchCompactionEvents 新增）,
         phase: "done",
         compactReason: "approaching-context-limit",
         preCompactTokenCount: 1800,
@@ -161,6 +162,7 @@ describe("get_session_timeline（功能缝：直调 execute）", () => {
         time: T0 + 58000, // part_t7_compact_2（T7 行集）
         auto: false, // 触发方式：手动
         trigger: "manual",
+        triggerKind: "manual",
         phase: null, // 该行未写 phase/compactReason
         compactReason: null,
         preCompactTokenCount: 4000,

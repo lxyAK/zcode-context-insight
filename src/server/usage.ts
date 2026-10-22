@@ -125,7 +125,9 @@ export function fetchRequestTimeline(db: DatabaseSync, sessionId: string): Timel
 }
 
 /**
- * 压缩事件标记（T4；来自 part 表 type='compaction' 行，结构对照研究笔记 03 §5）。
+ * 压缩事件（来自 part 表 type='compaction' 行，结构对照研究笔记 03 §5）。
+ * P0-5 起本函数族为压缩事件的唯一解析点：时间线标记、事件流、压缩阈值代理
+ * 全部经 fetchCompactionEvents 消费（序次键统一 time_created+sequence）。
  * 口径：truePostCompactTokenCount = 真实压缩后上下文 token 数；
  *       postCompactTokenCount = 含总结消息在内的 post 值（两者刻意区分，勿混用）。
  */
@@ -133,7 +135,10 @@ export interface CompactionEvent {
   time: number;
   /** 触发方式：auto=true 自动 / false 手动 */
   auto: boolean | null;
+  /** 原始 trigger 字符串（顶层与 compactBoundary 内取先非空者；形状漂移为 null） */
   trigger: string | null;
+  /** 归一触发方式：trigger 为 'manual'/'auto' 时取之，否则按 auto 布尔推导，均缺失为 unknown */
+  triggerKind: "manual" | "auto" | "unknown";
   phase: string | null;
   compactReason: string | null;
   preCompactTokenCount: number | null;
@@ -164,7 +169,8 @@ export function fetchCompactionEvents(
     kept: number | null;
   }
   // 真实结构中 trigger/phase/compactReason 顶层与 compactBoundary 内均可能出现，取先非空者；
-  // json_valid 前置过滤（T13）：data 非法 JSON 的行跳过，不毒化整查询
+  // json_valid 前置过滤（T13）：data 非法 JSON 的行跳过，不毒化整查询；
+  // 序次键统一 time_created+sequence（事件流公共契约，P0-5）
   const rows = db
     .prepare(
       `SELECT time_created,
@@ -179,7 +185,7 @@ export function fetchCompactionEvents(
               json_extract(data, '$.compactBoundary.keptMessageCount') AS kept
        FROM part
        WHERE session_id = ? AND json_valid(data) AND json_extract(data, '$.type') = 'compaction'
-       ORDER BY time_created ASC, id ASC`,
+       ORDER BY time_created ASC, sequence ASC`,
     )
     .all(sessionId) as unknown as PartRow[];
 
@@ -190,10 +196,20 @@ export function fetchCompactionEvents(
       if (req.startedAt <= Number(r.time_created)) requestIndex = req.index;
       else break;
     }
+    const autoBool = r.auto === null ? null : Number(r.auto) !== 0;
+    const triggerKind: "manual" | "auto" | "unknown" =
+      r.trigger === "manual" || r.trigger === "auto"
+        ? r.trigger
+        : autoBool === null
+          ? "unknown"
+          : autoBool
+            ? "auto"
+            : "manual";
     return {
       time: Number(r.time_created),
-      auto: r.auto === null ? null : Number(r.auto) !== 0,
+      auto: autoBool,
       trigger: r.trigger ?? null,
+      triggerKind,
       phase: r.phase ?? null,
       compactReason: r.compactReason ?? null,
       preCompactTokenCount: r.pre === null ? null : Number(r.pre),
@@ -359,27 +375,15 @@ export function getRecentContextTokens(db: DatabaseSync, sessionId: string): num
 
 /**
  * 最近压缩事件的实测阈值代理（T11 压缩提醒启发式的分母）：
- * part.data JSON 中 compactBoundary.preCompactTokenCount（宿主上次触发压缩时的上下文
- * 规模）。无压缩历史或 data 形状漂移（解析失败/缺字段）返回 null——不猜阈值。
+ * 最近一次压缩事件的 compactBoundary.preCompactTokenCount（宿主上次触发压缩时的上下文
+ * 规模）。P0-5 起复用唯一解析点 fetchCompactionEvents（含 json_valid 行级容错）。
+ * 无压缩历史或字段缺失/非正数返回 null——不猜阈值。
  */
 export function getLatestCompactionThreshold(db: DatabaseSync, sessionId: string): number | null {
-  const rows = db
-    .prepare(
-      `SELECT data FROM part
-       WHERE session_id = ? AND data LIKE '%"type":"compaction"%'
-       ORDER BY time_created DESC`,
-    )
-    .all(sessionId) as Array<{ data: string }>;
-  for (const r of rows) {
-    try {
-      const parsed = JSON.parse(r.data) as {
-        compactBoundary?: { preCompactTokenCount?: unknown };
-      };
-      const v = parsed.compactBoundary?.preCompactTokenCount;
-      if (typeof v === "number" && Number.isFinite(v) && v > 0) return v;
-    } catch {
-      // data 漂移或非 JSON：跳过该行，继续找更早的压缩事件
-    }
+  const events = fetchCompactionEvents(db, sessionId);
+  for (let i = events.length - 1; i >= 0; i--) {
+    const v = events[i].preCompactTokenCount;
+    if (v !== null && Number.isFinite(v) && v > 0) return v;
   }
   return null;
 }
