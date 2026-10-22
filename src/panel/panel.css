@@ -162,6 +162,81 @@ body,
   color: var(--color-text-secondary, #888);
 }
 
+/* Insights 活跃区（T9）：热力图 + 环形图卡片 */
+.zci-activity-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.zci-activity-card {
+  flex: 1 1 260px;
+  box-sizing: border-box;
+  padding: 8px;
+  border: 1px solid var(--color-border-default, #ddd);
+  border-radius: 6px;
+}
+
+.zci-activity-card-title {
+  font-size: 12px;
+  font-weight: 600;
+  margin: 0 0 6px;
+}
+
+.zci-heatmap {
+  display: block;
+  max-width: 100%;
+}
+
+.zci-heat-legend {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  margin-top: 6px;
+  font-size: 10px;
+  color: var(--color-text-secondary, #888);
+}
+
+.zci-heat-swatch {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border-radius: 2px;
+}
+
+.zci-legend {
+  list-style: none;
+  margin: 6px 0 0;
+  padding: 0;
+  font-size: 11px;
+}
+
+.zci-legend-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 1px 0;
+}
+
+.zci-legend-dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 2px;
+  flex: none;
+}
+
+.zci-legend-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.zci-legend-value {
+  margin-left: auto;
+  font-family: ui-monospace, Consolas, monospace;
+  white-space: nowrap;
+}
+
 /* 统计卡组（T5）：三组并排自适应，卡片引用宿主题变量 */
 .zci-stat-groups {
   display: grid;

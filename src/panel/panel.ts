@@ -1,9 +1,10 @@
 /**
  * 面板装配层：ui/initialize 握手 → callServerTool(get_overview / get_current_session_usage /
  * get_current_session_composition / get_session_stats / get_session_events /
- * get_session_file_activity) → 渲染。
- * 页面骨架（页头 + 概览区 + 用量区 + 组成区 + 统计区 + 事件流/文件活动）在此；后续工单
- * 的页面（Insights / Fleet）以新文件加入并在 renderOverview 处替换/扩展，不动桥协议层。
+ * get_session_file_activity / get_activity_insights) → 渲染。
+ * 页面骨架（页头 + 概览区 + 用量区 + 组成区 + 统计区 + 事件流/文件活动 + Insights 活跃区）
+ * 在此；后续工单的页面（Insights 页注册表 / Context 仪表盘 / Fleet）以新文件加入并在
+ * renderOverview 处替换/扩展，不动桥协议层。
  */
 
 /** 通用工具文本载荷解析：取首个 text 块 JSON；无文本返回 null */
@@ -46,6 +47,8 @@ import { t } from "./i18n.ts";
 import { BridgeClient, PostMessageTransport } from "./bridge.ts";
 import type { PostTarget } from "./bridge.ts";
 import { renderCompositionSection, type CompositionPayload } from "./views/composition.ts";
+import { renderActivitySection } from "./views/activity.ts";
+import type { ActivityPayload } from "./views/activity.ts";
 import { renderStatsSection, type SessionStatsPayload } from "./views/stats.ts";
 import { renderEventsSection, renderFileActivitySection } from "./views/events.ts";
 import type { EventsPayload, FileActivityPayload } from "./views/events.ts";
@@ -137,12 +140,22 @@ export async function mountPanel(opts: MountOptions): Promise<void> {
   }
 
   // 事件流与文件活动（T7）：并行取数，失败各自降级为空态/暂不可用
-  const [eventsPayload, fileActivityPayload] = await Promise.all([
+  // Insights 活跃数据（T9）：失败只降级活跃区
+  const [eventsPayload, fileActivityPayload, activityPayload] = await Promise.all([
     callTextTool(bridge, "get_session_events"),
     callTextTool(bridge, "get_session_file_activity"),
+    callTextTool(bridge, "get_activity_insights"),
   ]);
 
-  renderOverview(container, init, JSON.parse(textBlock.text), usage, composition, stats);
+  renderOverview(
+    container,
+    init,
+    JSON.parse(textBlock.text),
+    usage,
+    composition,
+    stats,
+    activityPayload as ActivityPayload | null,
+  );
   container.append(
     renderEventsSection(container.ownerDocument, eventsPayload as EventsPayload | null),
     renderFileActivitySection(container.ownerDocument, fileActivityPayload as FileActivityPayload | null),
@@ -168,6 +181,7 @@ function renderOverview(
   usage: UsagePayload | null,
   composition: CompositionPayload | null,
   stats: SessionStatsPayload | null,
+  activity: ActivityPayload | null,
 ): void {
   const doc = container.ownerDocument;
   container.replaceChildren();
@@ -199,6 +213,7 @@ function renderOverview(
     renderUsageSection(doc, usage, kv),
     renderCompositionSection(doc, composition),
     renderStatsSection(doc, stats),
+    renderActivitySection(doc, activity),
     footer,
   );
 }
