@@ -20,3 +20,16 @@ export function resolveHeartbeatPath(env: NodeJS.ProcessEnv = process.env): stri
   const dataDir = env.ZCODE_PLUGIN_DATA ?? env.CLAUDE_PLUGIN_DATA ?? "";
   return dataDir ? join(dataDir, "heartbeat.json") : "";
 }
+
+/** 设置文件路径（T12：env 覆盖 → 插件数据目录 settings.json；数据目录未知时返回空串） */
+export function resolveSettingsPath(env: NodeJS.ProcessEnv = process.env): string {
+  if (env.ZCI_SETTINGS_PATH) return env.ZCI_SETTINGS_PATH;
+  const dataDir = env.ZCODE_PLUGIN_DATA ?? env.CLAUDE_PLUGIN_DATA ?? "";
+  return dataDir ? join(dataDir, "settings.json") : "";
+}
+
+/** rollout 目录路径（T12 watch 数据源；env 覆盖 → 宿主默认位置，只读红线） */
+export function resolveRolloutDir(env: NodeJS.ProcessEnv = process.env): string {
+  const home = env.ZCI_HOME ?? homedir();
+  return env.ZCI_ROLLOUT_DIR ?? join(home, ".zcode", "cli", "rollout");
+}

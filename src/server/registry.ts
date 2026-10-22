@@ -21,5 +21,7 @@ export interface ToolDefinition {
   /** 输入 schema（zod 对象）；无参工具用 z.object({}) */
   inputSchema: z.ZodObject;
   visibility: Visibility;
+  /** 只读提示（MCP annotations.readOnlyHint）；写操作工具（如 set_settings）显式置 false，默认 true */
+  readOnlyHint?: boolean;
   execute: (args: Record<string, unknown>) => Promise<ToolResult>;
 }
