@@ -1,7 +1,13 @@
 /**
- * 面板装配层：ui/initialize 握手 → callServerTool(get_overview / get_current_session_usage) → 渲染。
- * 页面骨架（页头 + 概览区 + 当前会话用量区）在此；后续工单的页面（Insights / Context 仪表盘 / Fleet）
- * 以新文件加入并在 renderOverview 处替换/扩展，不动桥协议层。
+ * 面板装配层：ui/initialize 握手 → callServerTool(get_overview / get_current_session_usage /
+ * get_current_session_composition / get_session_stats / get_session_events /
+ * get_session_file_activity / get_activity_insights / get_settings) → 渲染。
+ * 页面骨架（页头 + 概览区 + 用量区 + 组成区 + 统计区 + Insights 活跃区 + 设置卡片 + 事件流/文件活动）
+ * 在此；后续工单的页面（Insights 页注册表 / Context 仪表盘 / Fleet）以新文件加入并在
+ * renderOverview 处替换/扩展，不动桥协议层。
+ *
+ * T12 刷新机制：页头手动刷新按钮兜底；dataVersion 轮询（server 侧 fs.watch 感知
+ * db.sqlite/rollout 变更）版本变化时自动重拉用量区，mountPanel 返回 MountHandle 供卸载清理。
  */
 
 /** 当前会话用量载荷（get_current_session_usage 的 structuredContent 形状） */
@@ -26,6 +32,12 @@ import pkg from "../../package.json";
 import { t } from "./i18n.ts";
 import { BridgeClient, PostMessageTransport } from "./bridge.ts";
 import type { PostTarget } from "./bridge.ts";
+import { renderCompositionSection, type CompositionPayload } from "./views/composition.ts";
+import { renderActivitySection } from "./views/activity.ts";
+import type { ActivityPayload } from "./views/activity.ts";
+import { renderStatsSection, type SessionStatsPayload } from "./views/stats.ts";
+import { renderEventsSection, renderFileActivitySection } from "./views/events.ts";
+import type { EventsPayload, FileActivityPayload } from "./views/events.ts";
 import { renderSettingsSection, type SettingsPayload } from "./views/settings.ts";
 
 /** MCP Apps 协议版本（研究笔记 02 §2，与官方面板一致） */
@@ -96,18 +108,18 @@ export async function mountPanel(opts: MountOptions): Promise<MountHandle> {
     return noopHandle();
   }
 
-  // 当前会话用量（T2）：独立 try/catch，失败不炸概览区
-  let usage: UsagePayload | null = null;
-  try {
-    const usageResult = (await bridge.request("tools/call", {
-      name: "get_current_session_usage",
-      arguments: {},
-    })) as { content?: Array<{ type: string; text?: string }> };
-    const usageText = usageResult.content?.find((c) => c.type === "text")?.text;
-    usage = usageText ? (JSON.parse(usageText) as UsagePayload) : null;
-  } catch {
-    usage = null; // 桥错误 → 降级提示
-  }
+  // 用量（T2）/ 组成（T3）/ 统计（T5）取数：各自失败不炸其他区块
+  const usage = await bridge.callToolJson<UsagePayload>("get_current_session_usage", {});
+  const composition = await bridge.callToolJson<CompositionPayload>("get_current_session_composition", {});
+  const stats = await bridge.callToolJson<SessionStatsPayload>("get_session_stats", {});
+
+  // 事件流与文件活动（T7）并行取数，失败各自降级为空态/暂不可用；
+  // Insights 活跃数据（T9）：失败只降级活跃区
+  const [eventsPayload, fileActivityPayload, activityPayload] = await Promise.all([
+    bridge.callToolJson("get_session_events", {}),
+    bridge.callToolJson("get_session_file_activity", {}),
+    bridge.callToolJson("get_activity_insights", {}),
+  ]);
 
   // 设置（T12）：经工具读取（持久层在 server 侧 settings.json），失败降级不炸面板
   const settings = await bridge.callToolJson<SettingsPayload>("get_settings", {});
@@ -132,8 +144,15 @@ export async function mountPanel(opts: MountOptions): Promise<MountHandle> {
     init,
     JSON.parse(textBlock.text),
     usageSection,
+    composition,
+    stats,
+    activityPayload as ActivityPayload | null,
     renderSettingsSection(doc, bridge, settings),
     () => void refreshUsage(),
+  );
+  container.append(
+    renderEventsSection(container.ownerDocument, eventsPayload as EventsPayload | null),
+    renderFileActivitySection(container.ownerDocument, fileActivityPayload as FileActivityPayload | null),
   );
 
   // 自动刷新：轻量轮询 get_data_version，版本变化才重拉数据视图
@@ -187,6 +206,9 @@ function renderOverview(
   init: { hostInfo?: { name?: string; version?: string } },
   payload: { plugin?: string; version?: string; server?: string; greeting?: string },
   usageSection: HTMLElement,
+  composition: CompositionPayload | null,
+  stats: SessionStatsPayload | null,
+  activity: ActivityPayload | null,
   settingsSection: HTMLElement,
   onRefresh: () => void,
 ): void {
@@ -217,7 +239,16 @@ function renderOverview(
 
   const footer = el(doc, "footer", "zci-footer", t("footerSkeleton"));
 
-  container.append(header, section, usageSection, settingsSection, footer);
+  container.append(
+    header,
+    section,
+    usageSection,
+    renderCompositionSection(doc, composition),
+    renderStatsSection(doc, stats),
+    renderActivitySection(doc, activity),
+    settingsSection,
+    footer,
+  );
 }
 
 /** 当前会话精确用量区（T2）：数字 + 识别来源标注（心跳精确 / 推断）；不可用时降级提示 */

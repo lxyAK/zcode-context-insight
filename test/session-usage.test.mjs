@@ -20,19 +20,20 @@ const fixtureHeartbeat = join(repoRoot, "test", "fixtures", "heartbeat.json");
 const S_MAIN = "session_00000000000000000000000000000001";
 const S_OLD = "session_00000000000000000000000000000002";
 
-// S_MAIN 的 model_usage 手算聚合（全请求；行集见 make-fixtures.mjs 注释）
+// S_MAIN 的 model_usage 手算聚合（全请求 6 行；行集见 make-fixtures.mjs 注释，
+// T5 追加了 mu_main_4 重试 / mu_main_5 超限 error(ttft NULL) / mu_main_6 三行）
 const MAIN_TOTAL = {
-  requests: 3,
-  inputTokens: 1510,
-  outputTokens: 305,
+  requests: 6,
+  inputTokens: 4000,   // 1000+500+10+400+2000+90
+  outputTokens: 405,   // 200+100+5+80+0+20
   reasoningTokens: 50,
-  cacheReadTokens: 1200,
+  cacheReadTokens: 3400,   // 800+400+0+300+1900+0
   cacheWriteTokens: 100,
-  computedTotalTokens: 1815,
-  ttftMsTotal: 2700,
+  computedTotalTokens: 4405,   // 1200+600+15+480+2000+110
+  ttftMsTotal: 4200,   // 1500+1000+200+900+600（mu_main_5 的 NULL 不计入 SUM）
 };
 const MAIN_BY_SOURCE = {
-  main_turn: { requests: 2, inputTokens: 1500, outputTokens: 300, computedTotalTokens: 1800 },
+  main_turn: { requests: 5, inputTokens: 3990, outputTokens: 400, computedTotalTokens: 4390 }, // 5 行：mu_main_1/2/4/5/6
   session_title: { requests: 1, inputTokens: 10, outputTokens: 5, computedTotalTokens: 15 },
 };
 
@@ -108,7 +109,7 @@ describe("get_current_session_usage（功能缝：直调 execute）", () => {
       expect(payload.session.id).toBe(S_MAIN);
       expect(payload.session.source).toBe("inferred");
       expect(payload.session.heartbeatAt).toBeNull();
-      expect(payload.usage.requests).toBe(3); // S_MAIN 的聚合
+      expect(payload.usage.requests).toBe(6); // S_MAIN 的聚合
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }

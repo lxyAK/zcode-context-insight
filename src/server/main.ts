@@ -20,6 +20,11 @@ import { createSetSettingsTool } from "./tools/set_settings.ts";
 import { createGetDataVersionTool } from "./tools/get_data_version.ts";
 import { resolveDbPath, resolveRolloutDir } from "./paths.ts";
 import { createDataVersionWatcher } from "./watcher.ts";
+import { createCurrentSessionCompositionTool } from "./tools/get_current_session_composition.ts";
+import { createSessionStatsTool } from "./tools/get_session_stats.ts";
+import { createSessionEventsTool } from "./tools/get_session_events.ts";
+import { createSessionFileActivityTool } from "./tools/get_session_file_activity.ts";
+import { createActivityTool } from "./tools/activity.ts";
 import { registerPanelResource } from "./panel-resource.ts";
 
 /** 数据版本监视器：fs.watch 双数据源（db.sqlite 目录 + rollout 目录），面板轮询比对自动刷新 */
@@ -35,6 +40,11 @@ const tools: ToolDefinition[] = [
   createGetSettingsTool(),
   createSetSettingsTool(),
   createGetDataVersionTool({ watcher: dataWatcher }),
+  createCurrentSessionCompositionTool(),
+  createSessionStatsTool(),
+  createSessionEventsTool(),
+  createSessionFileActivityTool(),
+  createActivityTool(),
 ];
 
 function registerTools(server: McpServer, defs: ToolDefinition[]): void {

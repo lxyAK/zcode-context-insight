@@ -109,8 +109,7 @@ body,
   background: var(--color-warning, #e67e22);
 }
 
-/* 设置卡片（T12）：下拉选择与保存状态行 */
-.zci-select {
+/* 设置卡片（T12）：下拉选择与保存状态行 */.zci-select {
   font: inherit;
   color: var(--color-text-primary, #222);
   background: var(--color-background-secondary, #f5f5f5);
@@ -142,4 +141,252 @@ body,
 .zci-refresh:hover {
   color: var(--color-text-primary, #222);
   border-color: var(--color-border-strong, #999);
+}
+
+/* 上下文组成条（T3）：估算角标与四分组 SVG/图例 */
+.zci-badge-estimate {
+  color: var(--color-text-on-info, #fff);
+  background: var(--color-info, #3498db);
+}
+
+.zci-comp-bar {
+  display: block;
+  width: 100%;
+  height: 12px;
+  border-radius: 3px;
+  overflow: hidden;
+  margin: 6px 0;
+}
+
+.zci-comp-empty-rect {
+  fill: var(--color-background-tertiary, #e5e5e5);
+}
+
+.zci-comp-legend {
+  display: grid;
+  gap: 2px;
+  margin: 4px 0 6px;
+}
+
+.zci-comp-legend-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.zci-comp-swatch {
+  width: 10px;
+  height: 10px;
+  border-radius: 2px;
+  flex: none;
+}
+
+.zci-comp-legend-label {
+  color: var(--color-text-secondary, #888);
+}
+
+.zci-comp-legend-value {
+  margin-left: auto;
+  font-family: ui-monospace, Consolas, monospace;
+}
+
+.zci-comp-note {
+  margin: 4px 0 0;
+  font-size: 11px;
+  color: var(--color-text-secondary, #888);
+}
+
+/* Insights 活跃区（T9）：热力图 + 环形图卡片 */
+.zci-activity-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.zci-activity-card {
+  flex: 1 1 260px;
+  box-sizing: border-box;
+  padding: 8px;
+  border: 1px solid var(--color-border-default, #ddd);
+  border-radius: 6px;
+}
+
+.zci-activity-card-title {
+  font-size: 12px;
+  font-weight: 600;
+  margin: 0 0 6px;
+}
+
+.zci-heatmap {
+  display: block;
+  max-width: 100%;
+}
+
+.zci-heat-legend {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  margin-top: 6px;
+  font-size: 10px;
+  color: var(--color-text-secondary, #888);
+}
+
+.zci-heat-swatch {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border-radius: 2px;
+}
+
+.zci-legend {
+  list-style: none;
+  margin: 6px 0 0;
+  padding: 0;
+  font-size: 11px;
+}
+
+.zci-legend-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 1px 0;
+}
+
+.zci-legend-dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 2px;
+  flex: none;
+}
+
+.zci-legend-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.zci-legend-value {
+  margin-left: auto;
+  font-family: ui-monospace, Consolas, monospace;
+  white-space: nowrap;
+}
+
+/* 统计卡组（T5）：三组并排自适应，卡片引用宿主题变量 */
+.zci-stat-groups {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 8px;
+}
+
+.zci-stat-group {
+  padding: 8px 10px;
+  border: 1px solid var(--color-border-default, #ddd);
+  border-radius: 6px;
+  background: var(--color-background-secondary, #f5f5f5);
+}
+
+.zci-stat-group-title {
+  margin: 0 0 6px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: var(--color-text-secondary, #888);
+}
+
+.zci-stat-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(88px, 1fr));
+  gap: 6px;
+}
+
+.zci-stat {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.zci-stat-label {
+  font-size: 11px;
+  color: var(--color-text-secondary, #888);
+}
+
+.zci-stat-value {
+  font-family: ui-monospace, Consolas, monospace;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--color-text-primary, #222);
+}
+
+/* T7 事件流 / 文件活动列表：限高滚动容器 + 行内布局 */
+.zci-list {
+  max-height: 260px;
+  overflow-y: auto;
+  border: 1px solid var(--color-border-default, #ddd);
+  border-radius: 6px;
+}
+
+.zci-list-item {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 3px 8px;
+  border-bottom: 1px solid var(--color-border-default, #eee);
+  font-size: 12px;
+}
+
+.zci-list-item:last-child {
+  border-bottom: none;
+}
+
+.zci-item-time {
+  flex: none;
+  font-family: ui-monospace, Consolas, monospace;
+  color: var(--color-text-secondary, #888);
+}
+
+.zci-item-op {
+  flex: none;
+  min-width: 3em;
+}
+
+.zci-item-path {
+  flex: 1 1 auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  direction: rtl; /* Windows 绝对路径长：右对齐截断保留文件名 */
+  text-align: left;
+}
+
+.zci-item-main {
+  flex: 1 1 auto;
+}
+
+.zci-item-lines {
+  flex: none;
+  font-family: ui-monospace, Consolas, monospace;
+}
+
+.zci-item-lines:not(:empty) {
+  color: var(--color-text-secondary, #888);
+}
+
+.zci-tag-error {
+  flex: none;
+  font-size: 10px;
+  padding: 0 4px;
+  border-radius: 4px;
+  color: var(--color-on-danger, #fff);
+  background: var(--color-danger, #c0392b);
+}
+
+/* 空态：available=true 但无记录 */
+.zci-empty {
+  margin: 0;
+  padding: 10px 8px;
+  font-size: 12px;
+  color: var(--color-text-secondary, #888);
+  border: 1px dashed var(--color-border-default, #ddd);
+  border-radius: 6px;
+  text-align: center;
 }

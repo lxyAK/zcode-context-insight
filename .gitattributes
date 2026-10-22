@@ -1,2 +1,4 @@
 # 心跳脚本以 bash 执行，CRLF 行尾会导致宿主 hook 直接失败，强制 LF
 *.sh text eol=lf
+# rollout 夹具为 JSONL（宿主真实格式即 LF），保持 LF 防止检出时被改写成 CRLF
+*.jsonl text eol=lf

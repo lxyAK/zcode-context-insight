@@ -47,6 +47,21 @@ const zhCN = {
   settingsUnavailable: "设置暂不可用",
   /** 刷新（T12：手动按钮兜底；自动刷新经 get_data_version 轮询，无需文案） */
   refreshButton: "刷新",
+  /** Insights 活跃区（T9） */
+  activityTitle: "活跃与模型组成",
+  activityTitleRanged: "活跃与模型组成（最近 {range} 天）",
+  activityUnavailable: "活跃数据暂不可用（未检测到宿主数据库）",
+  heatmapTitle: "活跃热力图",
+  heatmapAria: "最近 {range} 天活跃热力图",
+  noActivity: "窗口内无活动",
+  heatCellEmpty: "{date}｜无活动",
+  heatCellActive: "{date}｜{requests} 次请求 · {tokens} token · {sessions} 会话",
+  heatLegendLess: "少",
+  heatLegendMore: "多",
+  modelsTitle: "模型组成",
+  providersTitle: "按供应商",
+  donutSlice: "{label}｜{value} token（{pct}）",
+  donutLegendValue: "{value} token｜{pct}",
   /** 初始/错误态 */
   loading: "加载中…",
   noRootContainer: "面板缺少 #root 容器",

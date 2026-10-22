@@ -50,18 +50,17 @@ export interface SanitizeResult {
 export function sanitizeSettings(raw: unknown): SanitizeResult {
   const warnings: string[] = [];
   const source = (typeof raw === "object" && raw !== null ? raw : {}) as Record<string, unknown>;
-  const settings = {} as Settings;
+  // 初始取默认值拷贝：非法/缺失字段天然落在默认值上，合法字段才覆盖
+  const settings: Settings = { ...DEFAULT_SETTINGS };
+  const assignable = settings as Record<keyof Settings, string>;
   for (const field of Object.keys(ENUMS) as Array<keyof Settings>) {
     const value = source[field];
     if (typeof value === "string" && ENUMS[field].includes(value)) {
-      settings[field] = value as Settings[keyof Settings];
-    } else {
-      settings[field] = DEFAULT_SETTINGS[field];
-      if (value !== undefined) {
-        warnings.push(
-          `${field}: 未知值 ${JSON.stringify(value)}，已回退默认 ${DEFAULT_SETTINGS[field]}`,
-        );
-      }
+      assignable[field] = value;
+    } else if (value !== undefined) {
+      warnings.push(
+        `${field}: 未知值 ${JSON.stringify(value)}，已回退默认 ${DEFAULT_SETTINGS[field]}`,
+      );
     }
   }
   return { settings, warnings };

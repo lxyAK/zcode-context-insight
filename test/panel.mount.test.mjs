@@ -204,3 +204,287 @@ describe("面板挂载（mock 桥）", () => {
     expect(root.textContent).toContain("mock 工具失败");
   });
 });
+
+// ============================================================================
+// 上下文组成条（T3）：mock 宿主应答 get_current_session_composition，断言渲染结果
+// 数值取自 test/fixtures/rollout 主会话锚点的手算常量（与 composition.test.mjs 同源）。
+
+const COMPOSITION_RESULT = (overrides = {}) => ({
+  content: [
+    {
+      type: "text",
+      text: JSON.stringify({
+        available: true,
+        session: { id: "session_00000000000000000000000000000001", source: "heartbeat" },
+        rollout: { found: true, requests: { total: 5, full: 2, delta: 2, tail: 1, other: 0 } },
+        exactTotalTokens: 625,
+        anchor: { requestId: "req-main-3", index: 2, kind: "full", inputTokens: 625, messageCount: 8, messageOffset: 0 },
+        composition: {
+          estimated: true,
+          raw: { system: 121, tools: 99, history: 170, currentTurn: 110 },
+          calibrated: { system: 151, tools: 124, history: 213, currentTurn: 137 },
+          scaleFactor: 1.25,
+        },
+        ...overrides,
+      }),
+    },
+  ],
+});
+
+describe("面板组成条（mock 桥）", () => {
+  beforeEach(() => {
+    document.body.innerHTML = '<div id="root">Loading…</div>';
+  });
+
+  it("四分组 SVG 组成条：段宽按校准值比例、'估算'角标、顶部总量为 API 精确值", async () => {
+    const host = createMockHost(window, {
+      toolResults: {
+        get_overview: OVERVIEW_RESULT,
+        get_current_session_composition: COMPOSITION_RESULT(),
+      },
+    });
+    await mountPanel({ win: window, target: host.target });
+
+    // 发出了组成工具调用
+    const call = host.received.find(
+      (m) => m.method === "tools/call" && m.params?.name === "get_current_session_composition",
+    );
+    expect(call).toBeTruthy();
+
+    const root = document.getElementById("root");
+    const svg = root.querySelector("svg.zci-comp-bar");
+    expect(svg).toBeTruthy();
+
+    // 四分段：data-group 标识 + 段宽按校准值/精确总量比例（手算：151/625=24.16 等）
+    const segs = [...svg.querySelectorAll("rect.zci-comp-seg")];
+    expect(segs.map((s) => s.getAttribute("data-group"))).toEqual(["system", "tools", "history", "currentTurn"]);
+    expect(parseFloat(segs[0].getAttribute("width"))).toBeCloseTo((151 / 625) * 100, 1);
+    expect(parseFloat(segs[1].getAttribute("width"))).toBeCloseTo((124 / 625) * 100, 1);
+    expect(parseFloat(segs[2].getAttribute("width"))).toBeCloseTo((213 / 625) * 100, 1);
+    expect(parseFloat(segs[3].getAttribute("width"))).toBeCloseTo((137 / 625) * 100, 1);
+    // 段起点衔接（x 累计）
+    expect(parseFloat(segs[1].getAttribute("x"))).toBeCloseTo((151 / 625) * 100, 1);
+
+    // "估算"角标（ADR-0002：估算必须标注，不冒充精确）
+    expect(root.querySelector(".zci-badge-estimate")).toBeTruthy();
+
+    // 顶部总量为 API 精确值 625（非原始折算加总 500）
+    expect(root.textContent).toContain("625");
+    expect(root.textContent).not.toContain("500");
+
+    // 四分组名（GLOSSARY 固定命名）与图例数值
+    expect(root.textContent).toContain("system 提示");
+    expect(root.textContent).toContain("工具定义");
+    expect(root.textContent).toContain("历史消息");
+    expect(root.textContent).toContain("当前轮");
+    expect(root.textContent).toContain("151");
+
+    // 锚点说明（最近 full 请求）
+    expect(root.textContent).toContain("req-main-3");
+  });
+
+  it("纯 delta 会话：只显示精确总量，组成条为说明性空态（无估算角标、无分段）", async () => {
+    const host = createMockHost(window, {
+      toolResults: {
+        get_overview: OVERVIEW_RESULT,
+        get_current_session_composition: COMPOSITION_RESULT({
+          anchor: null,
+          composition: null,
+          compositionReason: "no-full-snapshot",
+          exactTotalTokens: 520,
+        }),
+      },
+    });
+    await mountPanel({ win: window, target: host.target });
+
+    const root = document.getElementById("root");
+    expect(root.querySelector(".zci-comp-empty")).toBeTruthy();
+    expect(root.querySelectorAll("rect.zci-comp-seg")).toHaveLength(0);
+    expect(root.querySelector(".zci-badge-estimate")).toBeNull();
+    // 空态说明 + 精确总量仍然展示
+    expect(root.textContent).toContain("无法估算");
+    expect(root.textContent).toContain("520");
+  });
+
+  it("rollout 文件缺失（宿主清理，ADR-0001 预期）：说明性降级而非白屏", async () => {
+    const host = createMockHost(window, {
+      toolResults: {
+        get_overview: OVERVIEW_RESULT,
+        get_current_session_composition: {
+          content: [
+            {
+              type: "text",
+              text: JSON.stringify({ available: false, reason: "rollout-not-found", session: { id: "session_x", source: "inferred" }, exactTotalTokens: null, anchor: null, composition: null }),
+            },
+          ],
+        },
+      },
+    });
+    await mountPanel({ win: window, target: host.target });
+    const root = document.getElementById("root");
+    expect(root.textContent).toContain("mock-greeting-骨架连通"); // 概览不受影响
+    expect(root.textContent).toContain("组成不可用");
+    expect(root.textContent).toContain("宿主清理"); // 预期行为明示而非报错
+  });
+
+  it("组成工具调用失败（桥错误）：降级提示，概览与用量区仍渲染", async () => {
+    const host = createMockHost(window, {
+      toolResults: {
+        get_overview: OVERVIEW_RESULT,
+        get_current_session_usage: USAGE_RESULT(HEARTBEAT_SESSION, MOCK_USAGE),
+      },
+      toolErrorNames: ["get_current_session_composition"],
+    });
+    await mountPanel({ win: window, target: host.target });
+    const root = document.getElementById("root");
+    expect(root.textContent).toContain("mock-greeting-骨架连通");
+    expect(root.textContent).toContain("1815"); // 用量区不受影响
+    expect(root.textContent).toContain("组成暂不可用");
+  });
+});
+
+const STATS_RESULT = (session, stats) => ({
+  content: [
+    {
+      type: "text",
+      text: JSON.stringify({ available: true, session, stats }),
+    },
+  ],
+});
+
+// 与 get_session_stats 夹具口径一致的 mock 载荷（真值来源：test/session-stats.test.mjs 手算）
+const MOCK_STATS = {
+  requests: 6,
+  cacheHitRate: 0.85,
+  contextExceededCount: 1,
+  inputTokens: 4000,
+  outputTokens: 405,
+  reasoningTokens: 50,
+  cacheReadTokens: 3400,
+  cacheWriteTokens: 100,
+  computedTotalTokens: 4405,
+  ttftCount: 5,
+  ttftP50Ms: 900,
+  ttftP95Ms: 1500,
+  retryCount: 2,
+};
+
+/** 按标签取统计卡的值节点文本（断言卡片的 label→value 邻近关系，而非全文模糊匹配） */
+function statValue(root, label) {
+  const card = [...root.querySelectorAll(".zci-stat")].find(
+    (c) => c.querySelector(".zci-stat-label")?.textContent === label,
+  );
+  return card?.querySelector(".zci-stat-value")?.textContent;
+}
+
+describe("统计卡（get_session_stats → Context/Token/Timing 三组卡）", () => {
+  beforeEach(() => {
+    document.body.innerHTML = '<div id="root">Loading…</div>';
+  });
+
+  it("三组卡渲染：Context/Token/Timing，命中率/分位数/计数按口径格式化", async () => {
+    const host = createMockHost(window, {
+      toolResults: {
+        get_overview: OVERVIEW_RESULT,
+        get_session_stats: STATS_RESULT(HEARTBEAT_SESSION, MOCK_STATS),
+      },
+    });
+    await mountPanel({ win: window, target: host.target });
+    const root = document.getElementById("root");
+
+    // 发出了统计工具调用
+    const statsCall = host.received.find(
+      (m) => m.method === "tools/call" && m.params?.name === "get_session_stats",
+    );
+    expect(statsCall).toBeTruthy();
+
+    // 三组标题（工单命名）
+    expect(root.textContent).toContain("Context Stats");
+    expect(root.textContent).toContain("Token Stats");
+    expect(root.textContent).toContain("Timing Stats");
+
+    // Context Stats：命中率 0.85 → 85.0%；超限计数原样
+    expect(statValue(root, "缓存命中率")).toBe("85.0%");
+    expect(statValue(root, "上下文超限")).toBe("1");
+
+    // Token Stats：token 数值原样（服务端口径 4000/405/3400/100/4405）
+    expect(statValue(root, "输入 token")).toBe("4000");
+    expect(statValue(root, "输出 token")).toBe("405");
+    expect(statValue(root, "缓存读 token")).toBe("3400");
+    expect(statValue(root, "缓存写 token")).toBe("100");
+    expect(statValue(root, "总量 token")).toBe("4405");
+
+    // Timing Stats：毫秒带单位，计数原样
+    expect(statValue(root, "TTFT p50")).toBe("900 ms");
+    expect(statValue(root, "TTFT p95")).toBe("1500 ms");
+    expect(statValue(root, "重试")).toBe("2");
+    expect(statValue(root, "请求数")).toBe("6");
+  });
+
+  it("无数据（requests=0）：量值与比率/分位数显示占位 '—' 而非 0，计数显示真 0", async () => {
+    const host = createMockHost(window, {
+      toolResults: {
+        get_overview: OVERVIEW_RESULT,
+        get_session_stats: STATS_RESULT(HEARTBEAT_SESSION, {
+          requests: 0,
+          cacheHitRate: null,
+          contextExceededCount: 0,
+          inputTokens: 0,
+          outputTokens: 0,
+          reasoningTokens: 0,
+          cacheReadTokens: 0,
+          cacheWriteTokens: 0,
+          computedTotalTokens: 0,
+          ttftCount: 0,
+          ttftP50Ms: null,
+          ttftP95Ms: null,
+          retryCount: 0,
+        }),
+      },
+    });
+    await mountPanel({ win: window, target: host.target });
+    const root = document.getElementById("root");
+
+    // 工单口径：无数据项显示占位而非 0
+    expect(statValue(root, "缓存命中率")).toBe("—");
+    expect(statValue(root, "TTFT p50")).toBe("—");
+    expect(statValue(root, "TTFT p95")).toBe("—");
+    expect(statValue(root, "输入 token")).toBe("—");
+    expect(statValue(root, "总量 token")).toBe("—");
+    // 计数类：没有发生就是真 0
+    expect(statValue(root, "上下文超限")).toBe("0");
+    expect(statValue(root, "重试")).toBe("0");
+    expect(statValue(root, "请求数")).toBe("0");
+  });
+
+  it("统计不可用（available=false）时显示降级提示而非白屏，其他区仍渲染", async () => {
+    const host = createMockHost(window, {
+      toolResults: {
+        get_overview: OVERVIEW_RESULT,
+        get_session_stats: {
+          content: [
+            { type: "text", text: JSON.stringify({ available: false, reason: "db-not-found", session: null, stats: null }) },
+          ],
+        },
+      },
+    });
+    await mountPanel({ win: window, target: host.target });
+    const root = document.getElementById("root");
+    expect(root.textContent).toContain("mock-greeting-骨架连通"); // 概览不受影响
+    expect(root.textContent).toContain("统计暂不可用");
+  });
+
+  it("统计工具调用失败（桥错误）时显示降级提示，用量区仍渲染", async () => {
+    const host = createMockHost(window, {
+      toolResults: {
+        get_overview: OVERVIEW_RESULT,
+        get_current_session_usage: USAGE_RESULT(HEARTBEAT_SESSION, MOCK_USAGE),
+      },
+      toolErrorNames: ["get_session_stats"],
+    });
+    await mountPanel({ win: window, target: host.target });
+    const root = document.getElementById("root");
+    expect(root.textContent).toContain("心跳精确"); // 用量区不受影响
+    expect(root.textContent).toContain("统计暂不可用");
+  });
+});
