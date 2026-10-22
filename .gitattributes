@@ -1,0 +1,2 @@
+# 心跳脚本以 bash 执行，CRLF 行尾会导致宿主 hook 直接失败，强制 LF
+*.sh text eol=lf

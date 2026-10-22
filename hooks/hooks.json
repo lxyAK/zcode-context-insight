@@ -1,0 +1,17 @@
+{
+  "hooks": {
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "process",
+            "command": "C:/Program Files/Git/usr/bin/bash.exe",
+            "args": ["${ZCODE_PLUGIN_ROOT}/hooks/heartbeat.sh"],
+            "timeoutMs": 5000,
+            "statusMessage": "Context Insight 心跳"
+          }
+        ]
+      }
+    ]
+  }
+}
