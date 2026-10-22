@@ -90,11 +90,30 @@ describe("面板事件流与文件活动视图（mock 桥）", () => {
     document.body.innerHTML = '<div id="root">Loading…</div>';
   });
 
+  /** 轮询等待异步渲染完成（T8 路由后页面挂载是异步链） */
+  async function waitFor(cond, timeoutMs = 2000) {
+    const start = Date.now();
+    while (!cond()) {
+      if (Date.now() - start > timeoutMs) throw new Error("waitFor 超时");
+      await new Promise((r) => setTimeout(r, 10));
+    }
+  }
+
+  /** 挂载（默认落 Insights 页）后切到 Context 页——T7 区块所在页，等最后一个区块渲染完 */
+  async function mountContext(target) {
+    await mountPanel({ win: window, target });
+    const btn = [...document.querySelectorAll(".zci-nav button")].find((b) => b.textContent === "Context");
+    btn.click();
+    const root = document.getElementById("root");
+    await waitFor(() => root.textContent.includes("文件活动"));
+    return root;
+  }
+
   it("挂载时调用两个 T7 工具，事件列表含压缩（触发方式+token 数）与模型切换（目标模型）", async () => {
     const host = createMockHost(window, {
       toolResults: { ...BASE_TOOLS, get_session_events: EVENTS_RESULT, get_session_file_activity: FILES_RESULT },
     });
-    await mountPanel({ win: window, target: host.target });
+    const root = await mountContext(host.target);
 
     // 发出了两个工具调用
     for (const name of ["get_session_events", "get_session_file_activity"]) {
@@ -102,7 +121,6 @@ describe("面板事件流与文件活动视图（mock 桥）", () => {
       expect(call, `应调用 ${name}`).toBeTruthy();
     }
 
-    const root = document.getElementById("root");
     // 压缩事件：触发方式与前后 token 数
     expect(root.textContent).toContain("压缩（自动）");
     expect(root.textContent).toContain("压缩（手动）");
@@ -118,9 +136,7 @@ describe("面板事件流与文件活动视图（mock 桥）", () => {
     const host = createMockHost(window, {
       toolResults: { ...BASE_TOOLS, get_session_events: EVENTS_RESULT, get_session_file_activity: FILES_RESULT },
     });
-    await mountPanel({ win: window, target: host.target });
-
-    const root = document.getElementById("root");
+    const root = await mountContext(host.target);
     // 操作类型
     expect(root.textContent).toContain("读取");
     expect(root.textContent).toContain("写入");
@@ -142,8 +158,7 @@ describe("面板事件流与文件活动视图（mock 桥）", () => {
     const host = createMockHost(window, {
       toolResults: { ...BASE_TOOLS, get_session_events: EVENTS_RESULT, get_session_file_activity: FILES_RESULT },
     });
-    await mountPanel({ win: window, target: host.target });
-    const root = document.getElementById("root");
+    const root = await mountContext(host.target);
     const lists = root.querySelectorAll(".zci-list");
     expect(lists.length).toBe(2);
     // 事件列表 4 条、文件列表 5 条
@@ -159,8 +174,7 @@ describe("面板事件流与文件活动视图（mock 桥）", () => {
         get_session_file_activity: text({ available: true, session: SESSION, activities: [] }),
       },
     });
-    await mountPanel({ win: window, target: host.target });
-    const root = document.getElementById("root");
+    const root = await mountContext(host.target);
     expect(root.textContent).toContain("暂无事件记录");
     expect(root.textContent).toContain("暂无文件活动记录");
     // 空态节点各一（按文本计数而非全局计数：T6 合并后 Context Browser 的降级空态同样用 .zci-empty）
@@ -174,8 +188,7 @@ describe("面板事件流与文件活动视图（mock 桥）", () => {
       toolResults: BASE_TOOLS,
       toolErrorNames: ["get_session_events", "get_session_file_activity"],
     });
-    await mountPanel({ win: window, target: host.target });
-    const root = document.getElementById("root");
+    const root = await mountContext(host.target);
     expect(root.textContent).toContain("mock-greeting"); // 概览不受影响
     expect(root.textContent).toContain("事件暂不可用");
     expect(root.textContent).toContain("文件活动暂不可用");
@@ -189,8 +202,7 @@ describe("面板事件流与文件活动视图（mock 桥）", () => {
         get_session_file_activity: text({ available: false, reason: "db-not-found", session: null, activities: null }),
       },
     });
-    await mountPanel({ win: window, target: host.target });
-    const root = document.getElementById("root");
+    const root = await mountContext(host.target);
     expect(root.textContent).toContain("事件暂不可用");
     expect(root.textContent).toContain("文件活动暂不可用");
   });

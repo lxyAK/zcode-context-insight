@@ -21,6 +21,7 @@ import { createSessionStatsTool } from "./tools/get_session_stats.ts";
 import { createFleetTreeTool } from "./tools/get_fleet_tree.ts";
 import { createSessionEventsTool } from "./tools/get_session_events.ts";
 import { createSessionFileActivityTool } from "./tools/get_session_file_activity.ts";
+import { createInsightsTool } from "./tools/get_insights.ts";
 import { createActivityTool } from "./tools/activity.ts";
 import { registerPanelResource } from "./panel-resource.ts";
 
@@ -33,6 +34,7 @@ const tools: ToolDefinition[] = [
   createFleetTreeTool(),
   createSessionEventsTool(),
   createSessionFileActivityTool(),
+  createInsightsTool(),
   createActivityTool(),
   createListSessionRequestsTool(),
   createGetRequestDetailTool(),

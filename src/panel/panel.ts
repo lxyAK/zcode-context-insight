@@ -1,59 +1,22 @@
 /**
- * 面板装配层：ui/initialize 握手 → callServerTool(get_overview / get_current_session_usage /
- * get_current_session_composition / get_session_stats / get_fleet_tree / get_session_events /
- * get_session_file_activity / get_activity_insights / list_session_requests / get_request_detail)
- * → 渲染。页面骨架（页头 + 概览区 + 用量区 + 组成区 + 统计区 + 事件流/文件活动 + Insights 活跃区 +
- * Fleet 代理网络 + Context Browser）在此；后续工单的页面（Insights 页注册表 / Context 仪表盘）
- * 以新文件加入并在 renderOverview 处替换/扩展，不动桥协议层。
+ * 面板装配层（T8 起为路由壳）：ui/initialize 握手 → 壳（页头 + 三页导航 + 内容区）
+ * → navigate 装载页面。页面内容在 views/pages/ 各视图模块实现，经 views/registry.ts
+ * 的 PAGES 注册表挂载（后续工单的扩展缝）；本层只管桥协议、壳与路由。
+ * 各区块取数经 PageContext.callTool（callServerTool 封装）；T6 的 Context Browser
+ * 挂载在 Context 页（views/pages/context.ts），不经本层。
  */
-
-/** 通用工具文本载荷解析：取首个 text 块 JSON；无文本返回 null */
-async function callTextTool(
-  bridge: BridgeClient,
-  name: string,
-): Promise<Record<string, unknown> | null> {
-  try {
-    const result = (await bridge.request("tools/call", {
-      name,
-      arguments: {},
-    })) as { content?: Array<{ type: string; text?: string }> };
-    const text = result.content?.find((c) => c.type === "text")?.text;
-    return text ? (JSON.parse(text) as Record<string, unknown>) : null;
-  } catch {
-    return null; // 桥错误 → 降级提示（各视图自行处理 null）
-  }
-}
-
-/** 当前会话用量载荷（get_current_session_usage 的 structuredContent 形状） */
-interface UsagePayload {
-  available: boolean;
-  reason?: string;
-  session?: {
-    id: string;
-    source: "heartbeat" | "inferred";
-    title: string | null;
-  } | null;
-  usage?: {
-    requests: number;
-    inputTokens: number;
-    outputTokens: number;
-    cacheReadTokens: number;
-    cacheWriteTokens: number;
-    computedTotalTokens: number;
-  } | null;
-}
 import pkg from "../../package.json";
 import { t } from "./i18n.ts";
 import { BridgeClient, PostMessageTransport } from "./bridge.ts";
 import type { PostTarget } from "./bridge.ts";
-import { renderCompositionSection, type CompositionPayload } from "./views/composition.ts";
-import { renderActivitySection } from "./views/activity.ts";
-import type { ActivityPayload } from "./views/activity.ts";
-import { createBrowserView } from "./views/browser.ts";
-import { renderStatsSection, type SessionStatsPayload } from "./views/stats.ts";
-import { renderFleetSection, type FleetTreePayload } from "./views/fleet.ts";
-import { renderEventsSection, renderFileActivitySection } from "./views/events.ts";
-import type { EventsPayload, FileActivityPayload } from "./views/events.ts";
+import { el } from "./views/dom.ts";
+import {
+  PAGES,
+  DEFAULT_PAGE_ID,
+  type PageContext,
+  type RouteParams,
+  type ToolCallResult,
+} from "./views/registry.ts";
 
 /** MCP Apps 协议版本（研究笔记 02 §2，与官方面板一致） */
 export const PROTOCOL_VERSION = "2026-01-26";
@@ -85,211 +48,74 @@ export async function mountPanel(opts: MountOptions): Promise<void> {
 
   bridge.notify("ui/notifications/initialized", {});
 
-  let result: { content?: Array<{ type: string; text?: string }> };
-  try {
-    result = (await bridge.request("tools/call", {
-      name: "get_overview",
-      arguments: {},
-    })) as { content?: Array<{ type: string; text?: string }> };
-  } catch (err) {
-    renderError(container, err instanceof Error ? err.message : String(err));
-    return;
-  }
-
-  const textBlock = result.content?.find((c) => c.type === "text");
-  if (!textBlock?.text) {
-    renderError(container, t("overviewNoText"));
-    return;
-  }
-
-  // 当前会话用量（T2）：独立 try/catch，失败不炸概览区
-  let usage: UsagePayload | null = null;
-  try {
-    const usageResult = (await bridge.request("tools/call", {
-      name: "get_current_session_usage",
-      arguments: {},
-    })) as { content?: Array<{ type: string; text?: string }> };
-    const usageText = usageResult.content?.find((c) => c.type === "text")?.text;
-    usage = usageText ? (JSON.parse(usageText) as UsagePayload) : null;
-  } catch {
-    usage = null; // 桥错误 → 降级提示
-  }
-
-  // 上下文组成（T3）：独立 try/catch，失败不炸其他区块
-  let composition: CompositionPayload | null = null;
-  try {
-    const compResult = (await bridge.request("tools/call", {
-      name: "get_current_session_composition",
-      arguments: {},
-    })) as { content?: Array<{ type: string; text?: string }> };
-    const compText = compResult.content?.find((c) => c.type === "text")?.text;
-    composition = compText ? (JSON.parse(compText) as CompositionPayload) : null;
-  } catch {
-    composition = null;
-  }
-
-  // 会话统计（T5）：三组统计卡，失败不炸用量区
-  let stats: SessionStatsPayload | null = null;
-  try {
-    const statsResult = (await bridge.request("tools/call", {
-      name: "get_session_stats",
-      arguments: {},
-    })) as { content?: Array<{ type: string; text?: string }> };
-    const statsText = statsResult.content?.find((c) => c.type === "text")?.text;
-    stats = statsText ? (JSON.parse(statsText) as SessionStatsPayload) : null;
-  } catch {
-    stats = null; // 桥错误 → 降级提示
-  }
-
-  // 事件流与文件活动（T7）+ Insights 活跃数据（T9）+ Fleet 代理网络树（T10）：
-  // 统一并行取数批次，失败各自降级为空态/暂不可用
-  const [eventsPayload, fileActivityPayload, activityPayload, fleetPayload] = await Promise.all([
-    callTextTool(bridge, "get_session_events"),
-    callTextTool(bridge, "get_session_file_activity"),
-    callTextTool(bridge, "get_activity_insights"),
-    callTextTool(bridge, "get_fleet_tree"),
-  ]);
-
-  // Context Browser（T6）：请求序列 + 组成明细（分组/DNA），视图独立文件，此处仅装配
-  const browser = createBrowserView({ doc: container.ownerDocument, callTool: makeCallTool(bridge) });
-
-  renderOverview(
-    container,
-    init,
-    JSON.parse(textBlock.text),
-    usage,
-    composition,
-    stats,
-    activityPayload as ActivityPayload | null,
-    fleetPayload as FleetTreePayload | null,
-    browser.element,
-  );
-  container.append(
-    renderEventsSection(container.ownerDocument, eventsPayload as EventsPayload | null),
-    renderFileActivitySection(container.ownerDocument, fileActivityPayload as FileActivityPayload | null),
-  );
-  await browser.render();
-}
-
-/** callServerTool 包装：面板数据工具统一经 tools/call 取 JSON 文本载荷（带参数；Browser 视图注入） */
-function makeCallTool(bridge: BridgeClient) {
-  return async (name: string, args: Record<string, unknown>): Promise<Record<string, unknown>> => {
-    const result = (await bridge.request("tools/call", { name, arguments: args })) as {
-      content?: Array<{ type: string; text?: string }>;
-    };
-    const text = result.content?.find((c) => c.type === "text")?.text;
-    return text ? (JSON.parse(text) as Record<string, unknown>) : {};
+  /** callServerTool 封装：解析 text 块 JSON；桥错误转 { ok:false, error }（页面渲染，不吞错） */
+  const callTool = async (
+    name: string,
+    args?: Record<string, unknown>,
+  ): Promise<ToolCallResult> => {
+    try {
+      const result = (await bridge.request("tools/call", {
+        name,
+        arguments: args ?? {},
+      })) as { content?: Array<{ type: string; text?: string }> };
+      const text = result.content?.find((c) => c.type === "text")?.text;
+      if (!text) return { ok: false, error: t("overviewNoText") };
+      return { ok: true, payload: JSON.parse(text) as Record<string, unknown> };
+    } catch (err) {
+      return { ok: false, error: err instanceof Error ? err.message : String(err) };
+    }
   };
-}
 
-function el(
-  doc: Document,
-  tag: string,
-  className: string,
-  text?: string,
-): HTMLElement {
-  const node = doc.createElement(tag);
-  node.className = className;
-  if (text !== undefined) node.textContent = text;
-  return node;
-}
-
-function renderOverview(
-  container: HTMLElement,
-  init: { hostInfo?: { name?: string; version?: string } },
-  payload: { plugin?: string; version?: string; server?: string; greeting?: string },
-  usage: UsagePayload | null,
-  composition: CompositionPayload | null,
-  stats: SessionStatsPayload | null,
-  activity: ActivityPayload | null,
-  fleet: FleetTreePayload | null,
-  browserElement?: HTMLElement,
-): void {
+  // ---- 壳：页头 + 页导航 + 内容区 ----
   const doc = container.ownerDocument;
   container.replaceChildren();
 
   const header = el(doc, "header", "zci-header");
   header.append(
     el(doc, "h1", "zci-title", t("brandName")),
-    el(doc, "span", "zci-version", payload.version ? `v${payload.version}` : ""),
+    el(doc, "span", "zci-version", t("headerConnected", { host: init.hostInfo?.name ?? "host" })),
   );
 
-  const section = el(doc, "section", "zci-section");
-  const kv = (label: string, value: string | undefined) => {
-    const row = el(doc, "div", "zci-kv");
-    row.append(el(doc, "span", "zci-kv-label", label), el(doc, "span", "zci-kv-value", value ?? "-"));
-    return row;
-  };
-  section.append(
-    el(doc, "p", "zci-status", t("connectedHost", { host: init.hostInfo?.name ?? "host" })),
-    kv(t("kvPlugin"), payload.plugin),
-    kv(t("kvServer"), payload.server),
-    el(doc, "p", "zci-greeting", payload.greeting ?? ""),
-  );
-
-  const usageSection = renderUsageSection(doc, usage, kv);
-  const browserSection = el(doc, "section", "zci-section");
-  browserSection.append(
-    el(doc, "h2", "zci-subtitle", "Context Browser"),
-    browserElement ?? el(doc, "p", "zci-status", "浏览器视图未就绪"),
-  );
-  const footer = el(doc, "footer", "zci-footer", t("footerSkeleton"));
-
-  container.append(
-    header,
-    section,
-    usageSection,
-    renderCompositionSection(doc, composition),
-    renderStatsSection(doc, stats),
-    renderActivitySection(doc, activity),
-    renderFleetSection(doc, fleet),
-    browserSection,
-    footer,
-  );
-}
-
-/** 当前会话精确用量区（T2）：数字 + 识别来源标注（心跳精确 / 推断）；不可用时降级提示 */
-function renderUsageSection(
-  doc: Document,
-  usage: UsagePayload | null,
-  kv: (label: string, value: string | undefined) => HTMLElement,
-): HTMLElement {
-  const section = el(doc, "section", "zci-section");
-  const title = el(doc, "h2", "zci-subtitle", t("usageTitle"));
-  section.append(title);
-
-  if (!usage?.available || !usage.usage || !usage.session) {
-    section.append(el(doc, "p", "zci-status", t("usageUnavailable")));
-    return section;
+  const nav = el(doc, "nav", "zci-nav");
+  const content = el(doc, "main", "zci-content");
+  const navButtons = new Map<string, HTMLButtonElement>();
+  for (const page of PAGES) {
+    const btn = el(doc, "button", "zci-nav-btn", page.title) as HTMLButtonElement;
+    btn.type = "button";
+    btn.addEventListener("click", () => navigate(page.id, {}));
+    nav.append(btn);
+    navButtons.set(page.id, btn);
   }
 
-  // 识别来源标注（ADR-0003：heartbeat=心跳精确；inferred=最近活跃推断）
-  const badge = el(
-    doc,
-    "span",
-    usage.session.source === "heartbeat" ? "zci-badge zci-badge-exact" : "zci-badge zci-badge-inferred",
-    usage.session.source === "heartbeat" ? t("badgeHeartbeat") : t("badgeInferred"),
-  );
-  title.append(badge);
+  container.append(header, nav, content);
 
-  section.append(
-    kv(t("kvSession"), usage.session.id),
-    kv(t("kvRequests"), String(usage.usage.requests)),
-    kv(t("kvInputTokens"), String(usage.usage.inputTokens)),
-    kv(t("kvOutputTokens"), String(usage.usage.outputTokens)),
-    kv(t("kvCacheReadTokens"), String(usage.usage.cacheReadTokens)),
-    kv(t("kvCacheWriteTokens"), String(usage.usage.cacheWriteTokens)),
-    kv(t("kvTotalTokens"), String(usage.usage.computedTotalTokens)),
-  );
-  return section;
-}
+  /** 路由：高亮导航 + 清空内容区 + 装载目标页（挂载错误渲染进内容区而非白屏） */
+  const navigate = (pageId: string, params: RouteParams = {}): void => {
+    const page = PAGES.find((p) => p.id === pageId) ?? PAGES[0];
+    for (const [id, btn] of navButtons) btn.classList.toggle("zci-nav-active", id === page.id);
+    content.replaceChildren();
+    const ctx: PageContext = {
+      doc,
+      container: content,
+      params,
+      navigate,
+      callTool,
+      hostName: init.hostInfo?.name,
+    };
+    Promise.resolve(page.mount(ctx)).catch((err: unknown) => {
+      content.replaceChildren(
+        el(
+          doc,
+          "p",
+          "zci-error",
+          t("pageLoadFailed", {
+            page: page.title,
+            message: err instanceof Error ? err.message : String(err),
+          }),
+        ),
+      );
+    });
+  };
 
-function renderError(container: HTMLElement, message: string): void {
-  const doc = container.ownerDocument;
-  container.replaceChildren(
-    el(doc, "header", "zci-header", ""),
-    el(doc, "p", "zci-error", t("toolCallFailed", { message })),
-  );
-  const header = container.querySelector(".zci-header");
-  if (header) header.append(el(doc, "h1", "zci-title", t("brandName")));
+  navigate(DEFAULT_PAGE_ID, {});
 }

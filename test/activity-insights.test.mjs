@@ -11,19 +11,24 @@
  *  - 子代理会话的请求计入 Insights 统计；
  *  - token 总量以 computed_total_tokens 为准。
  *
- * 手算（91 天窗口、nowMs = T0+3600000，排除 session_title 后；含 T5 并入的 mu_main_4/5/6
- * 与 T10 并入的 mu_subsub_1/2，error 行按真实消耗计入）：
+ * 手算（91 天窗口、nowMs = T0+3600000，排除 session_title 后；并集夹具含 T5 的 mu_main_4/5/6、
+ * T10 的 mu_subsub_1/2、T8 的 mu_day1_1 / mu_day3_1 / mu_day3_2 / mu_day8_1，error 行按真实消耗计入）：
  *   D0   = dayKey(mu_act_a=T0+30000)         计入 mu_main_1(1200)+mu_main_2(600)+mu_main_4(480)
  *                                             +mu_main_5(2000,error 行按真实消耗计入)+mu_main_6(110)
  *                                             +mu_old_1(350)+mu_sub_1(2300)+mu_act_a(700)
  *                                             +mu_subsub_1(900)+mu_subsub_2(300,error)
  *                                             → requests=10, computedTotal=8940, sessions=5（S_MAIN/S_OLD/S_SUB/S_MULTI/S_SUBSUB）
- *   D0-1 = dayKey(mu_act_b=T0-86400000+1h)   计入 mu_act_b(300) → requests=1, computedTotal=300, sessions=1
+ *   D0-1 = dayKey(mu_act_b=T0-86400000+1h)   计入 mu_act_b(300)+mu_day1_1(50000, T8)
+ *                                             → requests=2, computedTotal=50300, sessions=2（S_MULTI/S_DAY1）
  *   D0-2 = dayKey(mu_act_c=T0-2*86400000+2h) 计入 mu_act_c(500)；mu_act_d 为 session_title 应排除
  *                                             → requests=1, computedTotal=500, sessions=1
- *   模型分布：GLM-5.3/account:fixture     = 8940+500 = 9440（11 请求）
+ *   D0-3 = dayKey(mu_day3_1=T0-3*86400000+3700000)  计入 mu_day3_1(1000)+mu_day3_2(2000)（T8）
+ *                                             → requests=2, computedTotal=3000, sessions=1（S_DAY3）
+ *   D0-8 = dayKey(mu_day8_1=T0-8*86400000+3700000)  计入 mu_day8_1(500)（T8）
+ *                                             → requests=1, computedTotal=500, sessions=1（S_DAY8）
+ *   模型分布：GLM-5.3/account:fixture     = 8940+500+50000+1000+2000+500 = 62940（15 请求）
  *             GLM-4.7/account:fixture-alt = 300（1 请求）
- *   供应商：account:fixture=9440（11 请求）、account:fixture-alt=300（1 请求）
+ *   供应商：account:fixture=62940（15 请求）、account:fixture-alt=300（1 请求）
  */
 import { describe, it, expect } from "vitest";
 import { tmpdir } from "node:os";
@@ -66,12 +71,12 @@ describe("get_activity_insights（功能缝：直调 execute）", () => {
       computedTotalTokens: 8940,
       sessions: 5,
     });
-    // D0-1：仅 mu_act_b
+    // D0-1：mu_act_b + T8 的 mu_day1_1
     expect(byDate.get(dayKey(T0 - 86400000 + 3600000))).toEqual({
       date: dayKey(T0 - 86400000 + 3600000),
-      requests: 1,
-      computedTotalTokens: 300,
-      sessions: 1,
+      requests: 2,
+      computedTotalTokens: 50300,
+      sessions: 2,
     });
     // D0-2：mu_act_c 计入，mu_act_d（session_title）排除
     expect(byDate.get(dayKey(T0 - 2 * 86400000 + 7200000))).toEqual({
@@ -80,8 +85,21 @@ describe("get_activity_insights（功能缝：直调 execute）", () => {
       computedTotalTokens: 500,
       sessions: 1,
     });
-    // 稀疏返回：只有有活动的日历日（无第四天）
-    expect(payload.daily).toHaveLength(3);
+    // T8 行集带来的两个额外活跃日
+    expect(byDate.get(dayKey(T0 - 3 * 86400000 + 3700000))).toEqual({
+      date: dayKey(T0 - 3 * 86400000 + 3700000),
+      requests: 2,
+      computedTotalTokens: 3000,
+      sessions: 1,
+    });
+    expect(byDate.get(dayKey(T0 - 8 * 86400000 + 3700000))).toEqual({
+      date: dayKey(T0 - 8 * 86400000 + 3700000),
+      requests: 1,
+      computedTotalTokens: 500,
+      sessions: 1,
+    });
+    // 稀疏返回：只有有活动的日历日
+    expect(payload.daily).toHaveLength(5);
     // 升序
     const dates = payload.daily.map((d) => d.date);
     expect([...dates].sort()).toEqual(dates);
@@ -100,8 +118,8 @@ describe("get_activity_insights（功能缝：直调 execute）", () => {
       {
         providerId: "account:fixture",
         modelId: "GLM-5.3",
-        requests: 11,
-        computedTotalTokens: 9440,
+        requests: 15, // 11 + T8 的 4 行（mu_day1_1/day3×2/day8_1）
+        computedTotalTokens: 62940, // 9440 + 50000 + 3000 + 500
       },
       {
         providerId: "account:fixture-alt",
@@ -116,7 +134,7 @@ describe("get_activity_insights（功能缝：直调 execute）", () => {
     const payload = await callTool();
 
     expect(payload.providers).toEqual([
-      { providerId: "account:fixture", requests: 11, computedTotalTokens: 9440 },
+      { providerId: "account:fixture", requests: 15, computedTotalTokens: 62940 },
       { providerId: "account:fixture-alt", requests: 1, computedTotalTokens: 300 },
     ]);
   });

@@ -1,8 +1,9 @@
 // @vitest-environment happy-dom
 /**
- * Context Browser 面板视图测试（T6）：
- * 测试 seam 是面板公共入口——mountPanel（经 mock 桥渲染请求序列列表）与
- * createBrowserView 的公开方法（render / open，open 为 T3/T4 下钻联动缝）。
+ * Context Browser 面板视图测试（T6；T8 三页路由后 Browser 区块在 Context 页挂载）：
+ * 测试 seam 是面板公共入口——mountPanel（经 mock 桥渲染请求序列列表；先导航到
+ * Context 页再断言，参考 panel.mount.test.mjs 的路由适配方式）与 createBrowserView
+ * 的公开方法（render / open，open 为 T3/T4 下钻联动缝）。
  * 断言只看渲染后的 DOM 文本与交互（点击行/切换 DNA/返回），不触及内部状态。
  */
 import { describe, it, expect, beforeEach } from "vitest";
@@ -107,9 +108,31 @@ const DETAIL_DELTA = textResult({
   composition: null,
 });
 
-function mountWith(toolResults) {
+/** 轮询等待异步渲染完成（页面挂载经微任务/宏任务链，不暴露内部 Promise） */
+async function waitFor(cond, timeoutMs = 2000) {
+  const start = Date.now();
+  while (!cond()) {
+    if (Date.now() - start > timeoutMs) throw new Error("waitFor 超时");
+    await new Promise((r) => setTimeout(r, 10));
+  }
+}
+
+/**
+ * 挂载（默认落 Insights 页）后切到 Context 页，等待 Context Browser 完成首次渲染
+ * （列表头或降级空态，二择一出现即视为就绪；与 panel.mount.test.mjs 的
+ * mountContext 适配同构——T8 三页路由后 Browser 区块随 Context 页装载）。
+ */
+async function mountWith(toolResults) {
   const host = createMockHost(window, { toolResults });
-  return mountPanel({ win: window, target: host.target }).then(() => ({ host }));
+  await mountPanel({ win: window, target: host.target });
+  const ctxBtn = [...document.querySelectorAll(".zci-nav button")].find((b) => b.textContent === "Context");
+  ctxBtn.click();
+  const root = document.getElementById("root");
+  await waitFor(() => {
+    const browser = root.querySelector(".zci-browser");
+    return browser !== null && browser.textContent.trim().length > 0;
+  });
+  return { host, root };
 }
 
 /** 点击后的异步渲染需要多轮 microtask（mock 桥 postMessage → resolve → 视图续体） */
@@ -123,12 +146,11 @@ describe("面板 Context Browser（挂载缝：mountPanel）", () => {
   });
 
   it("挂载后渲染请求序列列表：形态徽标、精确输入、形态计数", async () => {
-    await mountWith({
+    const { root } = await mountWith({
       get_overview: OVERVIEW_RESULT,
       get_current_session_usage: USAGE_RESULT,
       list_session_requests: LIST_RESULT,
     });
-    const root = document.getElementById("root");
     expect(root.textContent).toContain("Context Browser");
     expect(root.textContent).toContain("请求序列");
     expect(root.textContent).toContain("full");
@@ -143,13 +165,12 @@ describe("面板 Context Browser（挂载缝：mountPanel）", () => {
   });
 
   it("点击 full 请求行进入明细：四分组、估算角标、精确总量、DNA 切换入口", async () => {
-    await mountWith({
+    const { root } = await mountWith({
       get_overview: OVERVIEW_RESULT,
       get_current_session_usage: USAGE_RESULT,
       list_session_requests: LIST_RESULT,
       get_request_detail: DETAIL_FULL,
     });
-    const root = document.getElementById("root");
     root.querySelector('[data-request-id="r1"]').click();
     await flush();
 
@@ -171,13 +192,12 @@ describe("面板 Context Browser（挂载缝：mountPanel）", () => {
   });
 
   it("DNA 扁平模式：按请求内顺序展示组成块（带序号与分组标签），可切回分组", async () => {
-    await mountWith({
+    const { root } = await mountWith({
       get_overview: OVERVIEW_RESULT,
       get_current_session_usage: USAGE_RESULT,
       list_session_requests: LIST_RESULT,
       get_request_detail: DETAIL_FULL,
     });
-    const root = document.getElementById("root");
     root.querySelector('[data-request-id="r1"]').click();
     await flush();
 
@@ -205,13 +225,12 @@ describe("面板 Context Browser（挂载缝：mountPanel）", () => {
   });
 
   it("点击 delta 请求行：显示'无快照'空态而非报错", async () => {
-    await mountWith({
+    const { root } = await mountWith({
       get_overview: OVERVIEW_RESULT,
       get_current_session_usage: USAGE_RESULT,
       list_session_requests: LIST_RESULT,
       get_request_detail: DETAIL_DELTA,
     });
-    const root = document.getElementById("root");
     root.querySelector('[data-request-id="r2"]').click();
     await flush();
 
@@ -220,24 +239,22 @@ describe("面板 Context Browser（挂载缝：mountPanel）", () => {
   });
 
   it("rollout 不可用（available=false）：显示明细不可用空态，其余区域不受影响", async () => {
-    await mountWith({
+    const { root } = await mountWith({
       get_overview: OVERVIEW_RESULT,
       get_current_session_usage: USAGE_RESULT,
       list_session_requests: textResult({ available: false, reason: "rollout-not-found", session: null, requests: null }),
     });
-    const root = document.getElementById("root");
     expect(root.textContent).toContain("明细不可用");
     expect(root.textContent).toContain("ok"); // 概览不受影响
   });
 
   it("明细视图可返回请求列表", async () => {
-    await mountWith({
+    const { root } = await mountWith({
       get_overview: OVERVIEW_RESULT,
       get_current_session_usage: USAGE_RESULT,
       list_session_requests: LIST_RESULT,
       get_request_detail: DETAIL_FULL,
     });
-    const root = document.getElementById("root");
     root.querySelector('[data-request-id="r1"]').click();
     await flush();
     expect(root.querySelector('[data-request-id="r1"]')).toBeNull(); // 已进入明细

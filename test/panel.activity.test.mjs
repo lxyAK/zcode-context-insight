@@ -76,12 +76,32 @@ const FULL_ACTIVITY = {
 /** 百分比手算（环形图图例）：8240/8540=96.49→96.5%；300/8540=3.51→3.5% */
 const MODEL_PCT = ["96.5%", "3.5%"];
 
-function mountWith(activityPayload) {
+/** 最小可用的 get_insights 应答（活跃区挂在 Insights 页——T8 三页骨架；页面需先过总览取数） */
+const INSIGHTS_OK = activityResult({
+  available: true,
+  anchorTime: T0 + 52000,
+  kpi: { totalTokens: 63305, totalSessions: 9, activeDays: 5 },
+  trend: [],
+  projects: [],
+  sessions: { filters: {}, total: 0, items: [] },
+});
+
+async function mountWith(activityPayload) {
   const host = createMockHost(window, {
     get_overview: OVERVIEW_RESULT,
+    get_insights: INSIGHTS_OK,
     get_activity_insights: activityResult(activityPayload),
   });
-  return mountPanel({ win: window, target: host.target });
+  const mount = mountPanel({ win: window, target: host.target });
+  // 活跃区挂在默认 Insights 页（T8 三页骨架）；轮询等待异步渲染完成
+  const start = Date.now();
+  const root = document.getElementById("root");
+  while (!root.querySelector(".zci-activity")) {
+    if (Date.now() - start > 2000) throw new Error("waitFor 活跃区超时");
+    await new Promise((r) => setTimeout(r, 10));
+  }
+  await mount;
+  return host;
 }
 
 describe("面板活跃区（mock 桥）", () => {
@@ -179,9 +199,7 @@ describe("面板活跃区（mock 桥）", () => {
     });
 
     const root = document.getElementById("root");
-    // 概览不受影响
-    expect(root.textContent).toContain("zcode-context-insight");
-    // 活跃区空态提示（热力图与环形图各自的空态）
+    // 活跃区空态提示（热力图与环形图各自的空态；概览区已随 T8 三页骨架移至 Context 页）
     expect(root.textContent).toContain("窗口内无活动");
     // 不出现 NaN / undefined 之类的渲染残渣
     expect(root.textContent).not.toContain("NaN");
@@ -189,22 +207,22 @@ describe("面板活跃区（mock 桥）", () => {
   });
 
   it("available=false：活跃区降级提示，概览与当前会话用量不受影响", async () => {
-    const host = createMockHost(window, {
-      get_overview: OVERVIEW_RESULT,
-      get_activity_insights: activityResult({ available: false, reason: "db-not-found", daily: null, models: null, providers: null }),
-    });
-    await mountPanel({ win: window, target: host.target });
+    await mountWith({ available: false, reason: "db-not-found", daily: null, models: null, providers: null });
 
     const root = document.getElementById("root");
-    expect(root.textContent).toContain("zcode-context-insight");
     expect(root.textContent).toContain("活跃数据暂不可用");
   });
 
   it("工具调用桥错误：活跃区降级提示而非白屏", async () => {
-    const host = createMockHost(window, { get_overview: OVERVIEW_RESULT });
     // 未提供 get_activity_insights 应答 → mock 返回 "{}"（available 缺省 falsy）→ 同样降级
+    const host = createMockHost(window, { get_overview: OVERVIEW_RESULT, get_insights: INSIGHTS_OK });
     await mountPanel({ win: window, target: host.target });
     const root = document.getElementById("root");
+    const start = Date.now();
+    while (!root.querySelector(".zci-activity")) {
+      if (Date.now() - start > 2000) throw new Error("waitFor 活跃区超时");
+      await new Promise((r) => setTimeout(r, 10));
+    }
     expect(root.textContent).toContain("活跃数据暂不可用");
   });
 });
