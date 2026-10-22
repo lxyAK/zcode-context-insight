@@ -108,3 +108,38 @@ body,
   color: var(--color-text-on-warning, #fff);
   background: var(--color-warning, #e67e22);
 }
+
+/* 设置卡片（T12）：下拉选择与保存状态行 */
+.zci-select {
+  font: inherit;
+  color: var(--color-text-primary, #222);
+  background: var(--color-background-secondary, #f5f5f5);
+  border: 1px solid var(--color-border-default, #ddd);
+  border-radius: 4px;
+  padding: 1px 4px;
+  max-width: 60%;
+}
+
+.zci-settings-status {
+  margin: 6px 0 0;
+  font-size: 11px;
+  color: var(--color-text-secondary, #888);
+  min-height: 1em; /* 无提示时占位，避免卡片高度跳动 */
+}
+
+/* 手动刷新按钮（T12 兜底）：与页头标题同行 */
+.zci-refresh {
+  font: inherit;
+  font-size: 11px;
+  color: var(--color-text-secondary, #888);
+  background: var(--color-background-secondary, #f5f5f5);
+  border: 1px solid var(--color-border-default, #ddd);
+  border-radius: 4px;
+  padding: 1px 8px;
+  cursor: pointer;
+}
+
+.zci-refresh:hover {
+  color: var(--color-text-primary, #222);
+  border-color: var(--color-border-strong, #999);
+}
